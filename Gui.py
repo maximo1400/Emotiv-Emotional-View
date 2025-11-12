@@ -125,12 +125,12 @@ class EmotionsAppGui:
         time.sleep(2)
         self.root.destroy()
 
-    def await_and_update_queue(self, command) -> None:
+    def await_and_update_queue(self, img) -> None:
         while not self.queue.empty():
             time.sleep(0.1)
 
-        self.queue.put(command)
-        print(f"Command <<'{command}'>> sent to queue")
+        self.queue.put(img)
+        print(f"Image <<'{img}'>> sent to queue")
 
         while not self.queue.empty():
             time.sleep(0.1)

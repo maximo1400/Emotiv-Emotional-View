@@ -52,7 +52,7 @@ class Train:
         verbose=True,
         **kwargs,
     ):
-        self.c = Cortex(app_client_id, app_client_secret, debug_mode=True, **kwargs)
+        self.c = Cortex(app_client_id, app_client_secret, debug_mode=False, **kwargs)
         self.c.bind(create_session_done=self.on_create_session_done)
         self.c.bind(new_data_labels=self.on_new_data_labels)
         self.c.bind(query_profile_done=self.on_query_profile_done)

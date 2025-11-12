@@ -6,8 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# from Emotiv import Train
-from test import Train
+from Emotiv import Train
 from Gui import EmotionsAppGui
 
 your_app_client_id = os.getenv("APP_CLIENT_ID")
@@ -38,14 +37,14 @@ def main() -> None:
     emotiv = Train(
         your_app_client_id,
         your_app_client_secret,
-        verbose=True,
+        verbose=False,
         emotiv_profile=profile_name,
         queue=img_names_queue,
     )
 
     t0 = time.time()
-    # t = threading.Thread(target=emotiv.start, args=[profile_name, streams, img_names_queue])
-    t = threading.Thread(target=emotiv.start, args=(streams,))
+    t = threading.Thread(target=emotiv.start, args=[profile_name, streams, img_names_queue])
+    # t = threading.Thread(target=emotiv.start, args=(streams,))
     t.start()
     gui.start()
 
