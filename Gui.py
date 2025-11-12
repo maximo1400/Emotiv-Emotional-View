@@ -163,12 +163,16 @@ class EmotionsAppGui:
 
     def show_image(self, image_key) -> None:
         print(f"Showing image: {image_key}")
+        time_s = self.time_s
+        t_end = time.time() + time_s
         self.canvas.delete("all")
         if image_key in self.images:
             img = self.images[image_key]
             x = (self.canvas_width - img.width()) // 2
             y = (self.canvas_height - img.height()) // 2
             self.canvas.create_image(x, y, anchor="nw", image=img)
+            while time.time() < t_end:
+                self.canvas.update()
+            print(f"Image {image_key} display time ended")
         else:
-            print(f"Image '{image_key}' not found in loaded images.")
-        self.canvas.update()
+            print(f"No image found for key: {image_key}")

@@ -94,7 +94,7 @@ class Train:
 
         self.profile_name = profile_name
         self.action_idx = 0
-        self.command = None
+        self.command = "neutral"
         self.img = None
         self.streams = streams
         self.queue = queue
@@ -439,6 +439,11 @@ class Train:
             time.sleep(0.1)
         else:
             img = self.queue.get()
+            if img not in ["next_round", "end"]:
+                self.command = "neutral"
+            else:
+                self.command = img
+            
             print(f"image received from queue: {img}")
             self.img = img
             self.queue.task_done()

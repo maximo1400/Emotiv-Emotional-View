@@ -22,8 +22,9 @@ def main() -> None:
     img_names_queue = queue.Queue()
 
     # list data streams
-    # streams = ["eeg", "mot", "dev", "eq", "pow", "met", "com", "fac", "sys"]
-    streams = ["pow", "mot", "met", "dev"]
+    streams = ["mot", "dev", "eq", "pow", "met", "com", "fac", "sys"]
+    streams = ["mot", "dev", "pow", "met", "com", "sys"]
+    
 
     if profile_name is None:
         print("No profile name provided")
@@ -39,7 +40,6 @@ def main() -> None:
         your_app_client_secret,
         verbose=False,
         emotiv_profile=profile_name,
-        queue=img_names_queue,
     )
 
     t0 = time.time()

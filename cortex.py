@@ -106,6 +106,7 @@ class Cortex(Dispatcher):
             self.client_secret = client_secret
 
         for key, value in kwargs.items():
+            print('maybe useful info?:')
             print('init {0} - {1}'.format(key, value))
             if key == 'license':
                 self.license = value
@@ -147,6 +148,7 @@ class Cortex(Dispatcher):
 
     def on_error(self, *args):
         if len(args) == 2:
+            print("on_error")
             print(str(args[1]))
 
     def on_close(self, *args, **kwargs):
@@ -410,6 +412,7 @@ class Cortex(Dispatcher):
             sys_data = result_dic['sys']
             self.emit('new_sys_data', data=sys_data)
         else :
+            print('Some unknown stream data received:')
             print(result_dic)
 
     def on_message(self, *args):
@@ -627,6 +630,7 @@ class Cortex(Dispatcher):
             data_labels = stream_cols
 
         labels['labels'] = data_labels
+        print("data labels")
         print(labels)
         self.emit('new_data_labels', data=labels)
 
