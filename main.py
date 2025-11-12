@@ -12,7 +12,6 @@ from Gui import EmotionsAppGui
 your_app_client_id = os.getenv("APP_CLIENT_ID")
 your_app_client_secret = os.getenv("APP_CLIENT_SECRET")
 
-
 def main() -> None:
     # Please fill your application clientId and clientSecret before running script
 

@@ -147,6 +147,8 @@ class Cortex(Dispatcher):
         self.do_prepare_steps()
 
     def on_error(self, *args):
+        #TODO: remove return
+        return
         if len(args) == 2:
             print("on_error")
             print(str(args[1]))
