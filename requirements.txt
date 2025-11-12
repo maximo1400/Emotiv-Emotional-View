@@ -1,0 +1,10 @@
+wheel
+pandas
+websocket-client
+python-dispatch
+torch
+torchvision
+pyarrow
+numpy
+matplotlib
+python-dotenv
