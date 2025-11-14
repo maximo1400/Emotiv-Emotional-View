@@ -197,7 +197,7 @@ class Train:
         action = self.command
         if status == "start":
             action = self.command
-            print(f"train_mc_action:----------: {action}:{status}")
+            print(f"train_mc_action:----------: {action}:{status} : {self.img}")
             # x = input()
         self.c.train_request(detection="mentalCommand", action=action, status=status)
 
@@ -250,6 +250,7 @@ class Train:
         train_event = sys_data[1]
         action = self.command
         print("on_new_sys_data: " + action + " : " + train_event)
+        print(f"current image: {self.img}")
         if train_event == "MC_Succeeded":
             # train action successful. you can accept the training to complete or reject the training
             self.train_mc_action("accept")

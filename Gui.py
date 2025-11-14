@@ -12,8 +12,8 @@ class EmotionsAppGui:
         emotiv_profile=None,
         demo=False,
     ) -> None:
-        self.time_s = 8
-        self.time_rest_s = 2
+        self.time_img_s = 6
+        self.time_after_img_s = 2  # Happens once before first image and then twice after each image
         self.canvas_width = 800
         self.canvas_height = 800
         self.winwdow_width = self.canvas_width + 25
@@ -122,10 +122,11 @@ class EmotionsAppGui:
         images = self.images.keys()
         images = list(images)
 
-        for i in range(len(images)):
-            complete_loop += [images[i], "next_round"]
+        # for i in range(len(images)):
+        #     complete_loop += [images[i], "next_round"]
 
-        complete_loop[-1] = "end"
+        # complete_loop[-1] = "end"
+        complete_loop = images + ["end"]
         print(f"lista comandos: {complete_loop}")
 
         for img in complete_loop:
@@ -134,10 +135,11 @@ class EmotionsAppGui:
         self.label.config(text=f"Gracias!", font=("Helvetica", 32))
         self.label.pack(padx=10, pady=10)
         self.canvas.update()
-        time.sleep(2)
+        time.sleep(4)
         self.root.destroy()
 
     def await_and_update_queue(self, img) -> None:
+        time.sleep(self.time_after_img_s)
         while not self.queue.empty():
             time.sleep(0.1)
 
@@ -175,9 +177,9 @@ class EmotionsAppGui:
 
     def show_image(self, image_key) -> None:
         print(f"Showing image: {image_key}")
-        time_s = self.time_s - self.time_rest_s
+        time_s = self.time_img_s
         t_end_p = time.time() + time_s
-        t_end_w = t_end_p + self.time_rest_s
+        t_end_w = t_end_p + self.time_after_img_s
         self.canvas.delete("all")
         if image_key in self.images:
             img = self.images[image_key]

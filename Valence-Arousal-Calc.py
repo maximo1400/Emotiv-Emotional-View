@@ -22,13 +22,12 @@ EEG_CONFIG = {
     "frequency_bands": ["alpha", "betaL", "betaH", "theta", "gamma"],
 }
 image_config = {}
-pictures = {
-    "High Valence": ["Dog 6", "Lake 9", "Rainbow 2", "Sunset 3"],
-    "Low Valence": ["Miserable pose 3", "Tumor 1", "Fire 9", "Cockroach 1"],
-    "High Arousal": ["Explosion 5", "Parachuting 4", "Snake 4", "Lava 1"],
-    "Low Arousal": ["Wall 2", "Rocks 6", "Cotton swabs 3", "Office supplies 2", "Socks 1"],
+oasis_categories = {
+    "High_Valence": ["Dog 6", "Lake 9", "Rainbow 2", "Sunset 3"],
+    "Low_Valence": ["Miserable pose 3", "Tumor 1", "Fire 9", "Cockroach 1"],
+    "High_Arousal": ["Explosion 5", "Parachuting 4", "Snake 4", "Lava 1"],
+    "Low_Arousal": ["Wall 2", "Rocks 6", "Cotton swabs 3", "Office supplies 2", "Socks 1"],
 }
-
 
 output_dir = "sub_data"
 
@@ -36,10 +35,29 @@ output_dir = "sub_data"
 def load_eeg_data(filename: str) -> pd.DataFrame:
     """Load EEG data from CSV file"""
     df = pd.read_csv(filename)
+    df.columns = df.columns.str.strip()
+    df["img"] = df["img"].str.strip()
     # Remove the first unnamed column if it exists
     if df.columns[0].startswith("Unnamed") or df.columns[0] == "":
         df = df.drop(df.columns[0], axis=1)
+    df = df.drop("round", axis=1)
+    df = df[~df["img"].eq("end")]
     return df
+
+
+def valanced_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Clean the DataFrame by removing rows with NaN or infinite values and balance image groups."""
+    df = df.replace([np.inf, -np.inf], np.nan)
+    df = df.dropna().reset_index(drop=True)
+
+    # compute per-image counts once
+    counts = df.groupby("img").size()
+    min_count = int(counts.min())
+
+    # take the last `min_count` rows per group
+    balanced = df.groupby("img", group_keys=False).apply(lambda g: g.tail(min_count))
+
+    return balanced.reset_index(drop=True)
 
 
 def calculate_asymetryies(df: pd.DataFrame, eeg_config=EEG_CONFIG) -> dict:
@@ -678,20 +696,15 @@ def main():
     # Load data
     print("Loading EEG data...")
     df = load_eeg_data(filename)
+    df = valanced_df(df)
 
-    if df is None:
-        return
-
+    return
     print(f"Data loaded successfully. Shape: {df.shape}")
-    print(f"Columns: {list(df.columns[:5])}...")  # Show first 5 columns
+    # print(f"Columns: {list(df.columns[:5])}...")  # Show first 5 columns
 
     # Calculate valence, dominance, and activation
     print("\nCalculating valence, dominance, and activation...")
     vda_results = calculate_valence_dominance_activation(df)
-
-    # Calculate Hjorth parameters
-    print("Calculating Hjorth parameters...")
-    hjorth_results = calculate_hjorth_parameters(df)
 
     # Display results
     print("\n" + "=" * 50)
@@ -707,23 +720,6 @@ def main():
             print(f"  Max:  {np.max(values):.4f}")
         else:
             print(f"{key}: {values:.4f}")
-
-    print("\n" + "=" * 50)
-    print("HJORTH PARAMETERS RESULTS")
-    print("=" * 50)
-
-    # Group by electrode
-    electrodes = set()
-    for key in hjorth_results.keys():
-        electrode = key.split("_")[0]
-        electrodes.add(electrode)
-
-    for electrode in sorted(electrodes):
-        print(f"\n{electrode}:")
-        for param in ["activity", "mobility", "complexity"]:
-            key = f"{electrode}_{param}"
-            if key in hjorth_results:
-                print(f"  {param.capitalize()}: {hjorth_results[key]:.4f}")
 
     # Save results to CSV
     print("\nSaving results...")
@@ -741,17 +737,11 @@ def main():
         vda_df.to_csv(f"{output_dir}/valence_dominance_activation_results.csv", index=False)
         print(f"VDA results saved to '{output_dir}/valence_dominance_activation_results.csv'")
 
-    # Save Hjorth results
-    hjorth_df = pd.DataFrame([hjorth_results])
-    hjorth_df.to_csv(f"{output_dir}/hjorth_parameters_results.csv", index=False)
-    print("Hjorth parameters saved to 'hjorth_parameters_results.csv'")
-
     print("\nAnalysis complete!")
 
-    plot_valence_activation(vda_results, output_dir=output_dir)
+    # plot_valence_activation(vda_results, output_dir=output_dir)
     plot_time_series(vda_results, output_dir=output_dir)
-    plot_valence_activation_methods(vda_results, bin_size=20, output_dir=output_dir)
-    # plot_hjorth_parameters(hjorth_results)
+    # plot_valence_activation_methods(vda_results, bin_size=20, output_dir=output_dir)
 
 
 if __name__ == "__main__":
