@@ -52,7 +52,7 @@ class Train:
         verbose=True,
         **kwargs,
     ):
-        self.c = Cortex(app_client_id, app_client_secret, debug_mode=True, **kwargs)
+        self.c = Cortex(app_client_id, app_client_secret, debug_mode=False, **kwargs)
         self.c.bind(create_session_done=self.on_create_session_done)
         self.c.bind(new_data_labels=self.on_new_data_labels)
         self.c.bind(query_profile_done=self.on_query_profile_done)
@@ -196,7 +196,6 @@ class Train:
         """
         action = self.command
         if status == "start":
-            self.update_image()
             action = self.command
             print(f"train_mc_action:----------: {action}:{status}")
             # x = input()
@@ -246,7 +245,7 @@ class Train:
 
     def on_new_sys_data(self, *args, **kwargs):
         sys_data = kwargs.get("data")
-        sys_data += [self.command, self.current_round]
+        sys_data += [self.img, self.current_round]
         self.data["sys"].loc[len(self.data["sys"])] = sys_data
         train_event = sys_data[1]
         action = self.command
@@ -443,7 +442,7 @@ class Train:
                 self.command = "neutral"
             else:
                 self.command = img
-            
+
             print(f"image received from queue: {img}")
             self.img = img
             self.queue.task_done()

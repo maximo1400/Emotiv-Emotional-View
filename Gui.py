@@ -18,7 +18,7 @@ class EmotionsAppGui:
         self.winwdow_width = self.canvas_width + 25
         self.window_height = self.canvas_height + 100
         self.fig_margin = 10
-        self.fig_size = 100
+        self.fig_size = 800
         self.emotiv_profile = emotiv_profile
         self.demo = demo
         self.queue = queue

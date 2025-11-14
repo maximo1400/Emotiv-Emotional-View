@@ -12,6 +12,7 @@ from Gui import EmotionsAppGui
 your_app_client_id = os.getenv("APP_CLIENT_ID")
 your_app_client_secret = os.getenv("APP_CLIENT_SECRET")
 
+
 def main() -> None:
     # Please fill your application clientId and clientSecret before running script
 
@@ -22,8 +23,6 @@ def main() -> None:
 
     # list data streams
     streams = ["mot", "dev", "eq", "pow", "met", "com", "fac", "sys"]
-    streams = ["mot", "dev", "pow", "met", "com", "sys"]
-    
 
     if profile_name is None:
         print("No profile name provided")
@@ -48,9 +47,8 @@ def main() -> None:
     gui.start()
 
     t.join()
-    emotiv.unsub(streams)
     t1 = time.time()
-    print(f"Tiempo de Aplicacion: {(t1-t0)/60.}min")
+    print(f"Tiempo de Aplicacion: {int(((t1-t0)/60)*100)/100} min")
 
     if os.path.exists(f"sub_data/{profile_name}"):
         profile_name = profile_name + "_" + str(int(time.time()))
