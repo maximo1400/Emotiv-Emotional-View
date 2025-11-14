@@ -13,6 +13,7 @@ class EmotionsAppGui:
         demo=False,
     ) -> None:
         self.time_s = 8
+        self.time_rest_s = 2
         self.canvas_width = 800
         self.canvas_height = 800
         self.winwdow_width = self.canvas_width + 25
@@ -24,10 +25,14 @@ class EmotionsAppGui:
         self.queue = queue
         self.pictures_folder = "img"
         self.images = {}
+        self.bg_color = "#808080"
 
     def start(self) -> None:
         self.root = tk.Tk()
         self.label = tk.Label(font=("Helvetica", 18))
+        self.root.configure(bg=self.bg_color)
+
+        # self.label = tk.Label(font=("Helvetica", 18), bg=self.bg_color, fg="white")
         self.root.geometry(f"{self.winwdow_width}x{self.window_height}")
         # self.root.attributes("-fullscreen", True)
         self.load_images(self.pictures_folder)
@@ -40,7 +45,14 @@ class EmotionsAppGui:
             self.get_profile_name()
             self.root.mainloop()
         else:
-            self.canvas = tk.Canvas(self.root, width=self.canvas_width, height=self.canvas_height)
+            self.canvas = tk.Canvas(
+                self.root,
+                width=self.canvas_width,
+                height=self.canvas_height,
+                bg=self.bg_color,
+                bd=0,
+                highlightthickness=0,
+            )
             # self.canvas.pack(fill="both", expand=True, padx=10, pady=10)
             self.canvas.pack(padx=10, pady=10, side="bottom")
             self.wait_to_start()
@@ -163,16 +175,21 @@ class EmotionsAppGui:
 
     def show_image(self, image_key) -> None:
         print(f"Showing image: {image_key}")
-        time_s = self.time_s
-        t_end = time.time() + time_s
+        time_s = self.time_s - self.time_rest_s
+        t_end_p = time.time() + time_s
+        t_end_w = t_end_p + self.time_rest_s
         self.canvas.delete("all")
         if image_key in self.images:
             img = self.images[image_key]
             x = (self.canvas_width - img.width()) // 2
             y = (self.canvas_height - img.height()) // 2
             self.canvas.create_image(x, y, anchor="nw", image=img)
-            while time.time() < t_end:
+            while time.time() < t_end_p:
                 self.canvas.update()
-            print(f"Image {image_key} display time ended")
+            print(f"Image {image_key} display time ended, starting rest period")
+            self.canvas.delete("all")
+            while time.time() < t_end_w:
+                self.canvas.update()
+            print(f"Image {image_key} time ended")
         else:
             print(f"No image found for key: {image_key}")
