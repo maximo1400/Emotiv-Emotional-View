@@ -8,3 +8,5 @@ pyarrow
 numpy
 matplotlib
 python-dotenv
+seaborn
+scipy

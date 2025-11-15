@@ -8,6 +8,7 @@ import os, shutil
 
 warnings.filterwarnings("ignore")
 
+# fmt: off
 EEG_CONFIG = {
     "frontal_pairs": [
         ("F3", "F4"),  # Primary frontal asymmetry
@@ -20,16 +21,18 @@ EEG_CONFIG = {
     ],
     "parietal_electrodes": ["P7", "P8"],
     "frequency_bands": ["alpha", "betaL", "betaH", "theta", "gamma"],
+    "time_s": 10,  # Duration each image is shown in seconds plus rest periods
 }
-image_config = {}
+
 oasis_categories = {
     "High_Valence": ["Dog 6", "Lake 9", "Rainbow 2", "Sunset 3"],
     "Low_Valence": ["Miserable pose 3", "Tumor 1", "Fire 9", "Cockroach 1"],
     "High_Arousal": ["Explosion 5", "Parachuting 4", "Snake 4", "Lava 1"],
-    "Low_Arousal": ["Wall 2", "Rocks 6", "Cotton swabs 3", "Office supplies 2", "Socks 1"],
+    "Low_Arousal": ["Wall 2","Rocks 6","Cotton swabs 3","Office supplies 2","Socks 1",],
 }
 
 output_dir = "sub_data"
+# fmt: on
 
 
 def load_eeg_data(filename: str) -> pd.DataFrame:
@@ -45,7 +48,7 @@ def load_eeg_data(filename: str) -> pd.DataFrame:
     return df
 
 
-def valanced_df(df: pd.DataFrame) -> pd.DataFrame:
+def valanced_df(df: pd.DataFrame, time_s: int = EEG_CONFIG["time_s"]) -> pd.DataFrame:
     """Clean the DataFrame by removing rows with NaN or infinite values and balance image groups."""
     df = df.replace([np.inf, -np.inf], np.nan)
     df = df.dropna().reset_index(drop=True)
@@ -56,6 +59,18 @@ def valanced_df(df: pd.DataFrame) -> pd.DataFrame:
 
     # take the last `min_count` rows per group
     balanced = df.groupby("img", group_keys=False).apply(lambda g: g.tail(min_count))
+
+    balanced["slices"] = pd.NA
+    I1 = min_count * 3 // time_s
+    I2 = min_count * 6 // time_s
+    R1 = min_count * 8 // time_s
+    R2 = min_count
+    for img in balanced["img"].unique():
+        indices = balanced[balanced["img"] == img].index
+        balanced.loc[indices[:I1], "slices"] = "I1"
+        balanced.loc[indices[I1:I2], "slices"] = "I2"
+        balanced.loc[indices[I2:R1], "slices"] = "R1"
+        balanced.loc[indices[R1:R2], "slices"] = "R2"
 
     return balanced.reset_index(drop=True)
 
@@ -117,7 +132,9 @@ def calculate_asymetryies(df: pd.DataFrame, eeg_config=EEG_CONFIG) -> dict:
                 asymmetry_log = np.log(right_raw) - np.log(left_raw)
 
                 # Method 2: Normalized log asymmetry
-                asymmetry_norm_log = np.log(right_norm + 1e-10) - np.log(left_norm + 1e-10)
+                asymmetry_norm_log = np.log(right_norm + 1e-10) - np.log(
+                    left_norm + 1e-10
+                )
 
                 # Method 3: Raw ratio asymmetry
                 ratio_raw = right_raw / left_raw
@@ -138,21 +155,35 @@ def calculate_asymetryies(df: pd.DataFrame, eeg_config=EEG_CONFIG) -> dict:
 
         # Store averaged results for each method
         results[f"frontal_asymmetry_{band}"] = np.mean(frontal_asymmetries, axis=0)
-        results[f"frontal_asymmetry_norm_{band}"] = np.mean(frontal_asymmetries_norm, axis=0)
+        results[f"frontal_asymmetry_norm_{band}"] = np.mean(
+            frontal_asymmetries_norm, axis=0
+        )
 
-        results[f"frontal_asymmetry_rational_{band}"] = np.mean(frontal_asymmetries_rational, axis=0)
-        results[f"frontal_asymmetry_rational_norm_{band}"] = np.mean(frontal_asymmetries_rational_norm, axis=0)
+        results[f"frontal_asymmetry_rational_{band}"] = np.mean(
+            frontal_asymmetries_rational, axis=0
+        )
+        results[f"frontal_asymmetry_rational_norm_{band}"] = np.mean(
+            frontal_asymmetries_rational_norm, axis=0
+        )
 
         results[f"parietal_asymmetry_{band}"] = np.mean(parietal_asymmetries, axis=0)
-        results[f"parietal_asymmetry_norm_{band}"] = np.mean(parietal_asymmetries_norm, axis=0)
+        results[f"parietal_asymmetry_norm_{band}"] = np.mean(
+            parietal_asymmetries_norm, axis=0
+        )
 
-        results[f"parietal_asymmetry_rational_{band}"] = np.mean(parietal_asymmetries_rational, axis=0)
-        results[f"parietal_asymmetry_rational_norm_{band}"] = np.mean(parietal_asymmetries_rational_norm, axis=0)
+        results[f"parietal_asymmetry_rational_{band}"] = np.mean(
+            parietal_asymmetries_rational, axis=0
+        )
+        results[f"parietal_asymmetry_rational_norm_{band}"] = np.mean(
+            parietal_asymmetries_rational_norm, axis=0
+        )
 
     return results
 
 
-def calculate_valence_dominance_activation(df: pd.DataFrame, eeg_config=EEG_CONFIG) -> dict:
+def calculate_valence_dominance_activation(
+    df: pd.DataFrame, eeg_config=EEG_CONFIG
+) -> dict:
     """
     Calculate valence, dominance, and activation using multiple EEG asymmetry methods
     Based on Davidson's model with enhanced normalization and validation
@@ -167,7 +198,9 @@ def calculate_valence_dominance_activation(df: pd.DataFrame, eeg_config=EEG_CONF
 
     # Valence from different alpha asymmetry methods
     valence_methods.append(-asymmetries["frontal_asymmetry_alpha"])  # Standard log
-    valence_methods.append(-asymmetries["frontal_asymmetry_norm_alpha"])  # Normalized log
+    valence_methods.append(
+        -asymmetries["frontal_asymmetry_norm_alpha"]
+    )  # Normalized log
 
     # For ratio methods, convert to log scale for consistency
     ratio_raw = asymmetries["frontal_asymmetry_rational_alpha"]
@@ -178,8 +211,12 @@ def calculate_valence_dominance_activation(df: pd.DataFrame, eeg_config=EEG_CONF
     # Dominance from parietal asymmetries
     dominance_methods.append(asymmetries["parietal_asymmetry_alpha"])
     dominance_methods.append(asymmetries["parietal_asymmetry_norm_alpha"])
-    dominance_methods.append(np.log(asymmetries["parietal_asymmetry_rational_alpha"] + 1e-10))
-    dominance_methods.append(np.log(asymmetries["parietal_asymmetry_rational_norm_alpha"] + 1e-10))
+    dominance_methods.append(
+        np.log(asymmetries["parietal_asymmetry_rational_alpha"] + 1e-10)
+    )
+    dominance_methods.append(
+        np.log(asymmetries["parietal_asymmetry_rational_norm_alpha"] + 1e-10)
+    )
 
     # Create composite scores (weighted average)
     if len(valence_methods) == 4:
@@ -231,12 +268,24 @@ def calculate_valence_dominance_activation(df: pd.DataFrame, eeg_config=EEG_CONF
     return results
 
 
-def plot_valence_activation(vda_results, save_plot=True, dominance_is_size=True, bin_size=1, output_dir=output_dir):
+def plot_valence_activation(
+    vda_results,
+    save_plot=True,
+    dominance_is_size=True,
+    bin_size=1,
+    output_dir=output_dir,
+):
     """
     Create a scatter plot of valence vs activation with quadrant analysis
     """
-    if "valence" not in vda_results or "activation" not in vda_results or "dominance" not in vda_results:
-        print("Error: Valence, activation, or dominance data not available for plotting")
+    if (
+        "valence" not in vda_results
+        or "activation" not in vda_results
+        or "dominance" not in vda_results
+    ):
+        print(
+            "Error: Valence, activation, or dominance data not available for plotting"
+        )
         return
 
     valence = vda_results["valence"]
@@ -286,11 +335,20 @@ def plot_valence_activation(vda_results, save_plot=True, dominance_is_size=True,
     )
 
     # Add quadrant lines
-    plt.axhline(y=np.mean(activation), color="red", linestyle="--", alpha=0.6, linewidth=1, label="Data mean")
+    plt.axhline(
+        y=np.mean(activation),
+        color="red",
+        linestyle="--",
+        alpha=0.6,
+        linewidth=1,
+        label="Data mean",
+    )
     plt.axvline(x=np.mean(valence), color="red", linestyle="--", alpha=0.6, linewidth=1)
 
     # Add quadrant lines at (0,0)
-    plt.axhline(y=0, color="black", linestyle="-", alpha=0.7, linewidth=2, label="Zero line")
+    plt.axhline(
+        y=0, color="black", linestyle="-", alpha=0.7, linewidth=2, label="Zero line"
+    )
     plt.axvline(x=0, color="black", linestyle="-", alpha=0.7, linewidth=2)
 
     # Force (0,0) as the visual center
@@ -348,13 +406,19 @@ def plot_valence_activation(vda_results, save_plot=True, dominance_is_size=True,
     # Customize the plot
     plt.xlabel("Valence (Negative ← → Positive)", fontsize=12, fontweight="bold")
     plt.ylabel("Activation (Low ← → High)", fontsize=12, fontweight="bold")
-    plt.title("EEG-based Emotional State: Valence vs Activation", fontsize=14, fontweight="bold")
+    plt.title(
+        "EEG-based Emotional State: Valence vs Activation",
+        fontsize=14,
+        fontweight="bold",
+    )
     plt.grid(True, alpha=0.3)
 
     # Add statistics text
     stats_text = f"Data Points: {len(valence)}\n"
     stats_text += f"Valence: μ={np.mean(valence):.3f}, σ={np.std(valence):.3f}\n"
-    stats_text += f"Activation: μ={np.mean(activation):.3f}, σ={np.std(activation):.3f}\n"
+    stats_text += (
+        f"Activation: μ={np.mean(activation):.3f}, σ={np.std(activation):.3f}\n"
+    )
     stats_text += f"Dominance: μ={np.mean(dominance):.3f}, σ={np.std(dominance):.3f}\n"
 
     # Add quadrant counts
@@ -383,7 +447,15 @@ def plot_valence_activation(vda_results, save_plot=True, dominance_is_size=True,
 
     if dominance_is_size:
         legend_elements.append(
-            plt.Line2D([0], [0], marker="o", color="w", markerfacecolor="blue", markersize=8, label="Size ∝ Dominance")
+            plt.Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="w",
+                markerfacecolor="blue",
+                markersize=8,
+                label="Size ∝ Dominance",
+            )
         )
 
     plt.legend(handles=legend_elements, loc="upper right", bbox_to_anchor=(0.98, 0.85))
@@ -392,7 +464,9 @@ def plot_valence_activation(vda_results, save_plot=True, dominance_is_size=True,
     plt.tight_layout()
 
     if save_plot:
-        plt.savefig(f"{output_dir}/valence_activation_plot.png", dpi=300, bbox_inches="tight")
+        plt.savefig(
+            f"{output_dir}/valence_activation_plot.png", dpi=300, bbox_inches="tight"
+        )
         print("Plot saved as 'valence_activation_plot.png'")
 
     plt.show()
@@ -438,14 +512,22 @@ def plot_time_series(vda_results, save_plot=True, output_dir=output_dir):
     plt.tight_layout()
 
     if save_plot:
-        plt.savefig(f"{output_dir}/emotional_metrics_timeseries.png", dpi=300, bbox_inches="tight")
+        plt.savefig(
+            f"{output_dir}/emotional_metrics_timeseries.png",
+            dpi=300,
+            bbox_inches="tight",
+        )
         print("Time series plot saved as 'emotional_metrics_timeseries.png'")
 
     plt.show()
 
 
 def plot_valence_activation_methods(
-    vda_results, save_plot=True, dominance_is_size=True, bin_size=1, output_dir=output_dir
+    vda_results,
+    save_plot=True,
+    dominance_is_size=True,
+    bin_size=1,
+    output_dir=output_dir,
 ):
     """
     Create a scatter plot showing all valence and activation calculation methods with different colors
@@ -458,7 +540,9 @@ def plot_valence_activation_methods(
 
     # Check if methods exist in results
     available_valence = [method for method in valence_methods if method in vda_results]
-    available_activation = [method for method in activation_methods if method in vda_results]
+    available_activation = [
+        method for method in activation_methods if method in vda_results
+    ]
 
     # Define colors for different combinations
     # colors = ["blue", "red", "green", "orange", "purple", "brown", "pink", "gray", "olive", "cyan"]
@@ -566,10 +650,21 @@ def plot_valence_activation_methods(
     all_activation = np.array(all_activation)
 
     # Add reference lines
-    plt.axhline(y=0, color="black", linestyle="-", alpha=0.8, linewidth=2, label="Zero line")
+    plt.axhline(
+        y=0, color="black", linestyle="-", alpha=0.8, linewidth=2, label="Zero line"
+    )
     plt.axvline(x=0, color="black", linestyle="-", alpha=0.8, linewidth=2)
-    plt.axhline(y=np.mean(all_activation), color="red", linestyle="--", alpha=0.6, linewidth=1, label="Overall mean")
-    plt.axvline(x=np.mean(all_valence), color="red", linestyle="--", alpha=0.6, linewidth=1)
+    plt.axhline(
+        y=np.mean(all_activation),
+        color="red",
+        linestyle="--",
+        alpha=0.6,
+        linewidth=1,
+        label="Overall mean",
+    )
+    plt.axvline(
+        x=np.mean(all_valence), color="red", linestyle="--", alpha=0.6, linewidth=1
+    )
 
     # Force (0,0) as the visual center
     x_absmax = max(abs(np.min(all_valence)), abs(np.max(all_valence)), 0.1) * 1.1
@@ -626,13 +721,19 @@ def plot_valence_activation_methods(
     # Customize the plot
     plt.xlabel("Valence (Negative ← → Positive)", fontsize=12, fontweight="bold")
     plt.ylabel("Activation (Low ← → High)", fontsize=12, fontweight="bold")
-    plt.title("EEG Emotional State: All Calculation Methods Comparison", fontsize=14, fontweight="bold")
+    plt.title(
+        "EEG Emotional State: All Calculation Methods Comparison",
+        fontsize=14,
+        fontweight="bold",
+    )
     plt.grid(True, alpha=0.3)
 
     # Add statistics text
     stats_text = f"Methods plotted: {plot_idx}\n"
     stats_text += f"Points per method: {len(dominance)}\n"
-    stats_text += f"Valence range: [{np.min(all_valence):.3f}, {np.max(all_valence):.3f}]\n"
+    stats_text += (
+        f"Valence range: [{np.min(all_valence):.3f}, {np.max(all_valence):.3f}]\n"
+    )
     stats_text += f"Activation range: [{np.min(all_activation):.3f}, {np.max(all_activation):.3f}]\n"
     stats_text += f"Dominance: μ={np.mean(dominance):.3f}, σ={np.std(dominance):.3f}"
 
@@ -647,12 +748,24 @@ def plot_valence_activation_methods(
     )
 
     # Add reference lines to legend
-    custom_legend_elements.append(plt.Line2D([0], [0], color="black", linestyle="-", label="Zero line"))
-    custom_legend_elements.append(plt.Line2D([0], [0], color="red", linestyle="--", label="Mean line"))
+    custom_legend_elements.append(
+        plt.Line2D([0], [0], color="black", linestyle="-", label="Zero line")
+    )
+    custom_legend_elements.append(
+        plt.Line2D([0], [0], color="red", linestyle="--", label="Mean line")
+    )
 
     if dominance_is_size:
         custom_legend_elements.append(
-            plt.Line2D([0], [0], marker="o", color="w", markerfacecolor="gray", markersize=8, label="Size ∝ Dominance")
+            plt.Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="w",
+                markerfacecolor="gray",
+                markersize=8,
+                label="Size ∝ Dominance",
+            )
         )
 
     # Create legend in the plot area
@@ -667,7 +780,11 @@ def plot_valence_activation_methods(
     plt.tight_layout()
 
     if save_plot:
-        plt.savefig(f"{output_dir}/valence_activation_methods_comparison.png", dpi=300, bbox_inches="tight")
+        plt.savefig(
+            f"{output_dir}/valence_activation_methods_comparison.png",
+            dpi=300,
+            bbox_inches="tight",
+        )
         print("Plot saved as 'valence_activation_methods_comparison.png'")
 
     plt.show()
@@ -679,7 +796,9 @@ def plot_valence_activation_methods(
         for a_method in available_activation:
             if plot_idx >= len(colors):
                 break
-            print(f"{plot_idx + 1}. {v_method} + {a_method} (Color: {colors[plot_idx]})")
+            print(
+                f"{plot_idx + 1}. {v_method} + {a_method} (Color: {colors[plot_idx]})"
+            )
             plot_idx += 1
 
 
@@ -697,29 +816,17 @@ def main():
     print("Loading EEG data...")
     df = load_eeg_data(filename)
     df = valanced_df(df)
+    # df.to_csv("data.csv", index=False)
+    # return
 
-    return
+    # filter rest periods and first 3 seconds (Only keep I2)
+    df = df[df["slices"] == "I2"].reset_index(drop=True)
+
     print(f"Data loaded successfully. Shape: {df.shape}")
-    # print(f"Columns: {list(df.columns[:5])}...")  # Show first 5 columns
 
     # Calculate valence, dominance, and activation
     print("\nCalculating valence, dominance, and activation...")
     vda_results = calculate_valence_dominance_activation(df)
-
-    # Display results
-    print("\n" + "=" * 50)
-    print("VALENCE, DOMINANCE, AND ACTIVATION RESULTS")
-    print("=" * 50)
-
-    for key, values in vda_results.items():
-        if isinstance(values, np.ndarray):
-            print(f"{key}:")
-            print(f"  Mean: {np.mean(values):.4f}")
-            print(f"  Std:  {np.std(values):.4f}")
-            print(f"  Min:  {np.min(values):.4f}")
-            print(f"  Max:  {np.max(values):.4f}")
-        else:
-            print(f"{key}: {values:.4f}")
 
     # Save results to CSV
     print("\nSaving results...")
@@ -727,21 +834,17 @@ def main():
     # Prepare VDA results for saving
     vda_df_data = {}
     for key, values in vda_results.items():
-        if isinstance(values, np.ndarray):
-            vda_df_data[key] = values
-        else:
-            vda_df_data[key] = [values] * len(df)
+        vda_df_data[key] = values
 
-    if vda_df_data:
-        vda_df = pd.DataFrame(vda_df_data)
-        vda_df.to_csv(f"{output_dir}/valence_dominance_activation_results.csv", index=False)
-        print(f"VDA results saved to '{output_dir}/valence_dominance_activation_results.csv'")
-
-    print("\nAnalysis complete!")
+    vda_df = pd.DataFrame(vda_df_data)
+    vda_df.to_csv(f"{output_dir}/VDA_results.csv", index=False)
+    print(f"VDA results saved to '{output_dir}/VDA_results.csv'")
 
     # plot_valence_activation(vda_results, output_dir=output_dir)
     plot_time_series(vda_results, output_dir=output_dir)
     # plot_valence_activation_methods(vda_results, bin_size=20, output_dir=output_dir)
+
+    return
 
 
 if __name__ == "__main__":
