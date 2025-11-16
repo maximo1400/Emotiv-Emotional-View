@@ -20,7 +20,23 @@ EEG_CONFIG = {
         ("P7", "P8"),  # Parietal asymmetry
     ],
     "parietal_electrodes": ["P7", "P8"],
+    "electrodes": ["AF3", "F7", "F3", "FC5", "T7", "P7", "O1", "O2", "P8", "T8", "FC6", "F4", "F8", "AF4"],
     "frequency_bands": ["alpha", "betaL", "betaH", "theta", "gamma"],
+    "pow_columns": [
+        "AF3/theta","AF3/alpha","AF3/betaL","AF3/betaH","AF3/gamma",
+        "F7/theta","F7/alpha","F7/betaL","F7/betaH","F7/gamma",
+        "F3/theta","F3/alpha","F3/betaL","F3/betaH","F3/gamma",
+        "FC5/theta","FC5/alpha","FC5/betaL","FC5/betaH","FC5/gamma",
+        "T7/theta","T7/alpha","T7/betaL","T7/betaH","T7/gamma",
+        "P7/theta","P7/alpha","P7/betaL","P7/betaH","P7/gamma",
+        "O1/theta","O1/alpha","O1/betaL","O1/betaH","O1/gamma",
+        "O2/theta","O2/alpha","O2/betaL","O2/betaH","O2/gamma",
+        "P8/theta","P8/alpha","P8/betaL","P8/betaH","P8/gamma",
+        "T8/theta","T8/alpha","T8/betaL","T8/betaH","T8/gamma",
+        "FC6/theta","FC6/alpha","FC6/betaL","FC6/betaH","FC6/gamma",
+        "F4/theta","F4/alpha","F4/betaL","F4/betaH","F4/gamma",
+        "F8/theta","F8/alpha","F8/betaL","F8/betaH","F8/gamma",
+        "AF4/theta","AF4/alpha","AF4/betaL","AF4/betaH","AF4/gamma"],
     "time_s": 10,  # Duration each image is shown in seconds plus rest periods
 }
 
@@ -60,25 +76,31 @@ def valanced_df(df: pd.DataFrame, time_s: int = EEG_CONFIG["time_s"]) -> pd.Data
     # take the last `min_count` rows per group
     balanced = df.groupby("img", group_keys=False).apply(lambda g: g.tail(min_count))
 
-    balanced["slices"] = pd.NA
-    I1 = min_count * 3 // time_s
-    I2 = min_count * 6 // time_s
+    balanced["slice"] = pd.NA
+    I1 = min_count * 1 // time_s
+    I2 = min_count * 4 // time_s
+    I3 = min_count * 6 // time_s
     R1 = min_count * 8 // time_s
     R2 = min_count
     for img in balanced["img"].unique():
         indices = balanced[balanced["img"] == img].index
-        balanced.loc[indices[:I1], "slices"] = "I1"
-        balanced.loc[indices[I1:I2], "slices"] = "I2"
-        balanced.loc[indices[I2:R1], "slices"] = "R1"
-        balanced.loc[indices[R1:R2], "slices"] = "R2"
+        balanced.loc[indices[:I1], "slice"] = "I1"
+        balanced.loc[indices[I1:I2], "slice"] = "I2"
+        balanced.loc[indices[I2:I3], "slice"] = "I3"
+        balanced.loc[indices[I3:R1], "slice"] = "R1"
+        balanced.loc[indices[R1:R2], "slice"] = "R2"
 
     return balanced.reset_index(drop=True)
 
 
-def calculate_asymetryies(df: pd.DataFrame, eeg_config=EEG_CONFIG) -> dict:
+def calculate_asymetryies(
+    df: pd.DataFrame,
+    df_valanced: pd.DataFrame,
+    eeg_config=EEG_CONFIG,
+    eps: float = 1e-10,
+) -> dict:
     """
-    Calculate EEG asymmetries for valence, dominance, and activation
-    Based on Davidson's model with enhanced normalization and validation
+    Compute EEG asymmetries for each frequency band using multiple methods.
     """
     results = {}
     results["methods"] = ["standard", "normalized", "ratio", "ratio_norm"]
@@ -91,17 +113,17 @@ def calculate_asymetryies(df: pd.DataFrame, eeg_config=EEG_CONFIG) -> dict:
     # Single merged loop for all asymmetry calculations
     for band in frequency_bands:
         # Initialize lists for different calculation methods
-        frontal_asymmetries = []
-        frontal_asymmetries_norm = []
+        frontal_asym = []
+        frontal_asym_norm = []
 
-        frontal_asymmetries_rational = []
-        frontal_asymmetries_rational_norm = []
+        frontal_asym_rational = []
+        frontal_asym_ratio_norm = []
 
-        parietal_asymmetries = []
-        parietal_asymmetries_norm = []
+        parietal_asym = []
+        parietal_asym_norm = []
 
-        parietal_asymmetries_rational = []
-        parietal_asymmetries_rational_norm = []
+        parietal_asym_rational = []
+        parietal_asym_ratio_norm = []
 
         # Calculate asymmetries with all methods
         for pair_type, pairs in [
@@ -121,68 +143,58 @@ def calculate_asymetryies(df: pd.DataFrame, eeg_config=EEG_CONFIG) -> dict:
                     right_total += df[f"{right}/{freq}"]
 
                 # Raw values with epsilon for numerical stability
-                left_raw = df[left_col] + 1e-10
-                right_raw = df[right_col] + 1e-10
+                left_raw = df[left_col] + eps
+                right_raw = df[right_col] + eps
 
                 # Normalized values
-                left_norm = df[left_col] / (left_total + 1e-6)
-                right_norm = df[right_col] / (right_total + 1e-6)
+                left_norm = df[left_col] / (left_total + eps)
+                right_norm = df[right_col] / (right_total + eps)
 
                 # Method 1: Standard log asymmetry
                 asymmetry_log = np.log(right_raw) - np.log(left_raw)
 
                 # Method 2: Normalized log asymmetry
-                asymmetry_norm_log = np.log(right_norm + 1e-10) - np.log(
-                    left_norm + 1e-10
-                )
+                asymmetry_norm_log = np.log(right_norm + eps) - np.log(left_norm + eps)
 
                 # Method 3: Raw ratio asymmetry
                 ratio_raw = right_raw / left_raw
 
                 # Method 4: Normalized ratio asymmetry
-                ratio_norm = right_norm / (left_norm + 1e-6)
+                ratio_norm = right_norm / (left_norm + eps)
 
                 if pair_type == "frontal":
-                    frontal_asymmetries.append(asymmetry_log)
-                    frontal_asymmetries_norm.append(asymmetry_norm_log)
-                    frontal_asymmetries_rational.append(ratio_raw)
-                    frontal_asymmetries_rational_norm.append(ratio_norm)
+                    frontal_asym.append(asymmetry_log)
+                    frontal_asym_norm.append(asymmetry_norm_log)
+                    frontal_asym_rational.append(ratio_raw)
+                    frontal_asym_ratio_norm.append(ratio_norm)
                 else:  # Parietal
-                    parietal_asymmetries.append(asymmetry_log)
-                    parietal_asymmetries_norm.append(asymmetry_norm_log)
-                    parietal_asymmetries_rational.append(ratio_raw)
-                    parietal_asymmetries_rational_norm.append(ratio_norm)
+                    parietal_asym.append(asymmetry_log)
+                    parietal_asym_norm.append(asymmetry_norm_log)
+                    parietal_asym_rational.append(ratio_raw)
+                    parietal_asym_ratio_norm.append(ratio_norm)
 
         # Store averaged results for each method
-        results[f"frontal_asymmetry_{band}"] = np.mean(frontal_asymmetries, axis=0)
-        results[f"frontal_asymmetry_norm_{band}"] = np.mean(
-            frontal_asymmetries_norm, axis=0
+        results[f"frontal_asym_{band}"] = np.mean(frontal_asym, axis=0)
+        results[f"frontal_asym_norm_{band}"] = np.mean(frontal_asym_norm, axis=0)
+
+        results[f"frontal_asym_ratio_{band}"] = np.mean(frontal_asym_rational, axis=0)
+        results[f"frontal_asym_ratio_norm_{band}"] = np.mean(
+            frontal_asym_ratio_norm, axis=0
         )
 
-        results[f"frontal_asymmetry_rational_{band}"] = np.mean(
-            frontal_asymmetries_rational, axis=0
-        )
-        results[f"frontal_asymmetry_rational_norm_{band}"] = np.mean(
-            frontal_asymmetries_rational_norm, axis=0
-        )
+        results[f"parietal_asym_{band}"] = np.mean(parietal_asym, axis=0)
+        results[f"parietal_asym_norm_{band}"] = np.mean(parietal_asym_norm, axis=0)
 
-        results[f"parietal_asymmetry_{band}"] = np.mean(parietal_asymmetries, axis=0)
-        results[f"parietal_asymmetry_norm_{band}"] = np.mean(
-            parietal_asymmetries_norm, axis=0
-        )
-
-        results[f"parietal_asymmetry_rational_{band}"] = np.mean(
-            parietal_asymmetries_rational, axis=0
-        )
-        results[f"parietal_asymmetry_rational_norm_{band}"] = np.mean(
-            parietal_asymmetries_rational_norm, axis=0
+        results[f"parietal_asym_ratio_{band}"] = np.mean(parietal_asym_rational, axis=0)
+        results[f"parietal_asym_ratio_norm_{band}"] = np.mean(
+            parietal_asym_ratio_norm, axis=0
         )
 
     return results
 
 
 def calculate_valence_dominance_activation(
-    df: pd.DataFrame, eeg_config=EEG_CONFIG
+    df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONFIG, eps: float = 1e-10
 ) -> dict:
     """
     Calculate valence, dominance, and activation using multiple EEG asymmetry methods
@@ -190,32 +202,28 @@ def calculate_valence_dominance_activation(
     """
 
     results = {}
-    asymmetries = calculate_asymetryies(df)
+    # asymmetries = calculate_asymetryies(df)
 
     # Calculate final metrics with multiple approaches
     valence_methods = []
     dominance_methods = []
 
     # Valence from different alpha asymmetry methods
-    valence_methods.append(-asymmetries["frontal_asymmetry_alpha"])  # Standard log
-    valence_methods.append(
-        -asymmetries["frontal_asymmetry_norm_alpha"]
-    )  # Normalized log
+    valence_methods.append(-asymmetries["frontal_asym_alpha"])  # Standard log
+    valence_methods.append(-asymmetries["frontal_asym_norm_alpha"])  # Normalized log
 
     # For ratio methods, convert to log scale for consistency
-    ratio_raw = asymmetries["frontal_asymmetry_rational_alpha"]
-    ratio_norm = asymmetries["frontal_asymmetry_rational_norm_alpha"]
-    valence_methods.append(-np.log(ratio_raw + 1e-10))  # Ratio as log
-    valence_methods.append(-np.log(ratio_norm + 1e-10))
+    ratio_raw = asymmetries["frontal_asym_ratio_alpha"]
+    ratio_norm = asymmetries["frontal_asym_ratio_norm_alpha"]
+    valence_methods.append(-np.log(ratio_raw + eps))  # Ratio as log
+    valence_methods.append(-np.log(ratio_norm + eps))
 
     # Dominance from parietal asymmetries
-    dominance_methods.append(asymmetries["parietal_asymmetry_alpha"])
-    dominance_methods.append(asymmetries["parietal_asymmetry_norm_alpha"])
+    dominance_methods.append(asymmetries["parietal_asym_alpha"])
+    dominance_methods.append(asymmetries["parietal_asym_norm_alpha"])
+    dominance_methods.append(np.log(asymmetries["parietal_asym_ratio_alpha"] + eps))
     dominance_methods.append(
-        np.log(asymmetries["parietal_asymmetry_rational_alpha"] + 1e-10)
-    )
-    dominance_methods.append(
-        np.log(asymmetries["parietal_asymmetry_rational_norm_alpha"] + 1e-10)
+        np.log(asymmetries["parietal_asym_ratio_norm_alpha"] + eps)
     )
 
     # Create composite scores (weighted average)
@@ -802,6 +810,62 @@ def plot_valence_activation_methods(
             plot_idx += 1
 
 
+def drop_first_image(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop the very first image (warm-up artifacts)."""
+    first_img = df["img"].iloc[0]
+    return df[df["img"] != first_img].reset_index(drop=True)
+
+
+def compute_prev_R2_baseline(df: pd.DataFrame, eeg_config=EEG_CONFIG) -> pd.DataFrame:
+    """
+    Baseline for each image = median of previous image's R2.
+    Fallback = session median if previous R2 is missing (or for the first image).
+    Returns a DataFrame indexed by img with baseline vectors for pow columns.
+    Assumes df['slice'] already has R2 labels and images are unique.
+    """
+    bands = eeg_config["pow_columns"]
+
+    # Median per image over R2
+    r2_per_img = df[df["slice"] == "R2"].groupby("img", sort=False)[bands].mean()
+
+    # Presentation order from file
+    order = df.drop_duplicates("img", keep="first")["img"].tolist()
+    session_med = df[bands].mean()
+
+    aligned = {}
+    for i, img in enumerate(order):
+        prev_img = order[i - 1] if i > 0 else None
+        if prev_img is not None and prev_img in r2_per_img.index:
+            aligned[img] = r2_per_img.loc[prev_img]
+        else:
+            aligned[img] = session_med
+
+    base = pd.DataFrame(aligned).T
+    base.index.name = "img"
+    return base  # index=img, columns=bands
+
+
+def apply_baseline_percent_change(
+    df: pd.DataFrame,
+    base_prev_r2: pd.DataFrame,
+    eps: float = 1e-10,
+    eeg_config=EEG_CONFIG,
+) -> pd.DataFrame:
+    """
+    Percent change relative to previous R2: (value - base) / (|base| + eps).
+    Use this if you prefer relative normalization.
+    """
+    df = df.copy()
+    bands = eeg_config["pow_columns"]
+
+    def row_op(df_local):
+        baseline = base_prev_r2.loc[df_local["img"], bands]
+        return (df_local[bands] - baseline) / (baseline.abs() + eps)
+
+    df[bands] = df.apply(row_op, axis=1)
+    return df
+
+
 def main():
     """Main function to process EEG data"""
     person = "virtual"
@@ -816,24 +880,30 @@ def main():
     print("Loading EEG data...")
     df = load_eeg_data(filename)
     df = valanced_df(df)
+    df_valanced = df.copy()
     # df.to_csv("data.csv", index=False)
     # return
 
+    df = drop_first_image(df)
+    base_prev = compute_prev_R2_baseline(df)
+    df = apply_baseline_percent_change(df, base_prev_r2=base_prev)
+
     # filter rest periods and first 3 seconds (Only keep I2)
-    df = df[df["slices"] == "I2"].reset_index(drop=True)
+    df_i2 = df[df["slice"] == "I2"].reset_index(drop=True)
 
     print(f"Data loaded successfully. Shape: {df.shape}")
 
     # Calculate valence, dominance, and activation
     print("\nCalculating valence, dominance, and activation...")
-    vda_results = calculate_valence_dominance_activation(df)
+    asym = calculate_asymetryies(df_i2)
+    vda = calculate_valence_dominance_activation(df_i2, asym)
 
     # Save results to CSV
     print("\nSaving results...")
 
     # Prepare VDA results for saving
     vda_df_data = {}
-    for key, values in vda_results.items():
+    for key, values in vda.items():
         vda_df_data[key] = values
 
     vda_df = pd.DataFrame(vda_df_data)
@@ -841,7 +911,7 @@ def main():
     print(f"VDA results saved to '{output_dir}/VDA_results.csv'")
 
     # plot_valence_activation(vda_results, output_dir=output_dir)
-    plot_time_series(vda_results, output_dir=output_dir)
+    plot_time_series(vda, output_dir=output_dir)
     # plot_valence_activation_methods(vda_results, bin_size=20, output_dir=output_dir)
 
     return
