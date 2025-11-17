@@ -10,3 +10,5 @@ matplotlib
 python-dotenv
 seaborn
 scipy
+notebook
+ipykernel
