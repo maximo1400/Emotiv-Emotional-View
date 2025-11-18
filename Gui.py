@@ -3,6 +3,7 @@ import time
 import os
 import queue
 from PIL import Image, ImageTk
+import pickle
 
 
 class EmotionsAppGui:
@@ -26,6 +27,7 @@ class EmotionsAppGui:
         self.pictures_folder = "img"
         self.images = {}
         self.bg_color = "#808080"
+        self.pickle_file = "OASIS_database_2016/all_info.pkl"
 
     def start(self) -> None:
         self.root = tk.Tk()
@@ -118,6 +120,11 @@ class EmotionsAppGui:
         self.label.pack(padx=10, pady=10)
 
     def image_loop(self) -> None:
+        order = []
+        with open(self.pickle_file, "rb") as f:
+            obj = pickle.load(f)
+            order = obj["img_order"]
+        # print(f"Image order loaded from pickle: {order}")
         complete_loop = []
         images = self.images.keys()
         images = list(images)
@@ -126,7 +133,7 @@ class EmotionsAppGui:
         #     complete_loop += [images[i], "next_round"]
 
         # complete_loop[-1] = "end"
-        complete_loop = images + ["end"]
+        complete_loop = order + ["end"]
         print(f"lista comandos: {complete_loop}")
 
         for img in complete_loop:
