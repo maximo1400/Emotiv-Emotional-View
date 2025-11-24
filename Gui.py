@@ -4,6 +4,7 @@ import os
 import queue
 from PIL import Image, ImageTk
 import pickle
+import random
 
 
 class EmotionsAppGui:
@@ -86,9 +87,7 @@ class EmotionsAppGui:
         self.root.destroy()
 
     def wait_to_start(self) -> None:
-        msg = f"""A continuacion se presentan imagens
-
-        Cuando estés listo, presiona Enter para iniciar."""
+        msg = f"""A continuación se presentan imágenes\n\nCuando estés listo, presiona Enter para iniciar."""
         self.canvas.create_text(
             self.canvas_width / 2,
             self.canvas_height / 2,
@@ -128,6 +127,10 @@ class EmotionsAppGui:
         complete_loop = []
         images = self.images.keys()
         images = list(images)
+        # remove first element, shuffle the remaining, then re-add it at the beginning
+        first = order.pop(0)
+        random.shuffle(order)
+        order.insert(0, first)
 
         # for i in range(len(images)):
         #     complete_loop += [images[i], "next_round"]
