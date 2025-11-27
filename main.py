@@ -41,9 +41,7 @@ def main() -> None:
     )
 
     t0 = time.time()
-    t = threading.Thread(
-        target=emotiv.start, args=[profile_name, streams, img_names_queue]
-    )
+    t = threading.Thread(target=emotiv.start, args=[profile_name, streams, img_names_queue])
     # t = threading.Thread(target=emotiv.start, args=(streams,))
     t.start()
     gui.start()

@@ -64,9 +64,7 @@ def load_eeg_data(filename: str) -> pd.DataFrame:
     return df
 
 
-def clean_slice_df(
-    df: pd.DataFrame, time_s: int = EEG_CONFIG["time_s"]
-) -> pd.DataFrame:
+def clean_slice_df(df: pd.DataFrame, time_s: int = EEG_CONFIG["time_s"]) -> pd.DataFrame:
     """Clean the DataFrame by removing rows with NaN or infinite values and balance image groups."""
     df = df.replace([np.inf, -np.inf], np.nan)
     df = df.dropna().reset_index(drop=True)
@@ -180,17 +178,13 @@ def calculate_asymetryies(
         results[f"frontal_asym_norm_{band}"] = np.mean(frontal_asym_norm, axis=0)
 
         results[f"frontal_asym_ratio_{band}"] = np.mean(frontal_asym_rational, axis=0)
-        results[f"frontal_asym_ratio_norm_{band}"] = np.mean(
-            frontal_asym_ratio_norm, axis=0
-        )
+        results[f"frontal_asym_ratio_norm_{band}"] = np.mean(frontal_asym_ratio_norm, axis=0)
 
         results[f"parietal_asym_{band}"] = np.mean(parietal_asym, axis=0)
         results[f"parietal_asym_norm_{band}"] = np.mean(parietal_asym_norm, axis=0)
 
         results[f"parietal_asym_ratio_{band}"] = np.mean(parietal_asym_rational, axis=0)
-        results[f"parietal_asym_ratio_norm_{band}"] = np.mean(
-            parietal_asym_ratio_norm, axis=0
-        )
+        results[f"parietal_asym_ratio_norm_{band}"] = np.mean(parietal_asym_ratio_norm, axis=0)
 
     return results
 
@@ -224,9 +218,7 @@ def calculate_valence_dominance_arousal(
     dominance_methods.append(asymmetries["parietal_asym_alpha"])
     dominance_methods.append(asymmetries["parietal_asym_norm_alpha"])
     dominance_methods.append(np.log(asymmetries["parietal_asym_ratio_alpha"] + eps))
-    dominance_methods.append(
-        np.log(asymmetries["parietal_asym_ratio_norm_alpha"] + eps)
-    )
+    dominance_methods.append(np.log(asymmetries["parietal_asym_ratio_norm_alpha"] + eps))
 
     # Create composite scores (weighted average)
     if len(valence_methods) == 4:
@@ -288,14 +280,8 @@ def plot_valence_activation(
     """
     Create a scatter plot of valence vs activation with quadrant analysis
     """
-    if (
-        "valence" not in vda_results
-        or "activation" not in vda_results
-        or "dominance" not in vda_results
-    ):
-        print(
-            "Error: Valence, activation, or dominance data not available for plotting"
-        )
+    if "valence" not in vda_results or "activation" not in vda_results or "dominance" not in vda_results:
+        print("Error: Valence, activation, or dominance data not available for plotting")
         return
 
     valence = vda_results["valence"]
@@ -356,9 +342,7 @@ def plot_valence_activation(
     plt.axvline(x=np.mean(valence), color="red", linestyle="--", alpha=0.6, linewidth=1)
 
     # Add quadrant lines at (0,0)
-    plt.axhline(
-        y=0, color="black", linestyle="-", alpha=0.7, linewidth=2, label="Zero line"
-    )
+    plt.axhline(y=0, color="black", linestyle="-", alpha=0.7, linewidth=2, label="Zero line")
     plt.axvline(x=0, color="black", linestyle="-", alpha=0.7, linewidth=2)
 
     # Force (0,0) as the visual center
@@ -426,9 +410,7 @@ def plot_valence_activation(
     # Add statistics text
     stats_text = f"Data Points: {len(valence)}\n"
     stats_text += f"Valence: μ={np.mean(valence):.3f}, σ={np.std(valence):.3f}\n"
-    stats_text += (
-        f"Activation: μ={np.mean(activation):.3f}, σ={np.std(activation):.3f}\n"
-    )
+    stats_text += f"Activation: μ={np.mean(activation):.3f}, σ={np.std(activation):.3f}\n"
     stats_text += f"Dominance: μ={np.mean(dominance):.3f}, σ={np.std(dominance):.3f}\n"
 
     # Add quadrant counts
@@ -474,9 +456,7 @@ def plot_valence_activation(
     plt.tight_layout()
 
     if save_plot:
-        plt.savefig(
-            f"{output_dir}/valence_activation_plot.png", dpi=300, bbox_inches="tight"
-        )
+        plt.savefig(f"{output_dir}/valence_activation_plot.png", dpi=300, bbox_inches="tight")
         print("Plot saved as 'valence_activation_plot.png'")
 
     plt.show()
@@ -550,9 +530,7 @@ def plot_valence_activation_methods(
 
     # Check if methods exist in results
     available_valence = [method for method in valence_methods if method in vda_results]
-    available_activation = [
-        method for method in activation_methods if method in vda_results
-    ]
+    available_activation = [method for method in activation_methods if method in vda_results]
 
     # Define colors for different combinations
     # colors = ["blue", "red", "green", "orange", "purple", "brown", "pink", "gray", "olive", "cyan"]
@@ -660,9 +638,7 @@ def plot_valence_activation_methods(
     all_activation = np.array(all_activation)
 
     # Add reference lines
-    plt.axhline(
-        y=0, color="black", linestyle="-", alpha=0.8, linewidth=2, label="Zero line"
-    )
+    plt.axhline(y=0, color="black", linestyle="-", alpha=0.8, linewidth=2, label="Zero line")
     plt.axvline(x=0, color="black", linestyle="-", alpha=0.8, linewidth=2)
     plt.axhline(
         y=np.mean(all_activation),
@@ -672,9 +648,7 @@ def plot_valence_activation_methods(
         linewidth=1,
         label="Overall mean",
     )
-    plt.axvline(
-        x=np.mean(all_valence), color="red", linestyle="--", alpha=0.6, linewidth=1
-    )
+    plt.axvline(x=np.mean(all_valence), color="red", linestyle="--", alpha=0.6, linewidth=1)
 
     # Force (0,0) as the visual center
     x_absmax = max(abs(np.min(all_valence)), abs(np.max(all_valence)), 0.1) * 1.1
@@ -741,9 +715,7 @@ def plot_valence_activation_methods(
     # Add statistics text
     stats_text = f"Methods plotted: {plot_idx}\n"
     stats_text += f"Points per method: {len(dominance)}\n"
-    stats_text += (
-        f"Valence range: [{np.min(all_valence):.3f}, {np.max(all_valence):.3f}]\n"
-    )
+    stats_text += f"Valence range: [{np.min(all_valence):.3f}, {np.max(all_valence):.3f}]\n"
     stats_text += f"Activation range: [{np.min(all_activation):.3f}, {np.max(all_activation):.3f}]\n"
     stats_text += f"Dominance: μ={np.mean(dominance):.3f}, σ={np.std(dominance):.3f}"
 
@@ -758,12 +730,8 @@ def plot_valence_activation_methods(
     )
 
     # Add reference lines to legend
-    custom_legend_elements.append(
-        plt.Line2D([0], [0], color="black", linestyle="-", label="Zero line")
-    )
-    custom_legend_elements.append(
-        plt.Line2D([0], [0], color="red", linestyle="--", label="Mean line")
-    )
+    custom_legend_elements.append(plt.Line2D([0], [0], color="black", linestyle="-", label="Zero line"))
+    custom_legend_elements.append(plt.Line2D([0], [0], color="red", linestyle="--", label="Mean line"))
 
     if dominance_is_size:
         custom_legend_elements.append(
@@ -806,9 +774,7 @@ def plot_valence_activation_methods(
         for a_method in available_activation:
             if plot_idx >= len(colors):
                 break
-            print(
-                f"{plot_idx + 1}. {v_method} + {a_method} (Color: {colors[plot_idx]})"
-            )
+            print(f"{plot_idx + 1}. {v_method} + {a_method} (Color: {colors[plot_idx]})")
             plot_idx += 1
 
 
