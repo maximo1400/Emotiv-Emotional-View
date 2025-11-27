@@ -18,7 +18,7 @@ def main() -> None:
 
     # Init Train
     is_demo = False
-    profile_name = "virtual"
+    profile_name = "E10"
     img_names_queue = queue.Queue()
 
     # list data streams
@@ -41,7 +41,9 @@ def main() -> None:
     )
 
     t0 = time.time()
-    t = threading.Thread(target=emotiv.start, args=[profile_name, streams, img_names_queue])
+    t = threading.Thread(
+        target=emotiv.start, args=[profile_name, streams, img_names_queue]
+    )
     # t = threading.Thread(target=emotiv.start, args=(streams,))
     t.start()
     gui.start()

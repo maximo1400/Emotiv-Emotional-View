@@ -64,7 +64,9 @@ def load_eeg_data(filename: str) -> pd.DataFrame:
     return df
 
 
-def valanced_df(df: pd.DataFrame, time_s: int = EEG_CONFIG["time_s"]) -> pd.DataFrame:
+def clean_slice_df(
+    df: pd.DataFrame, time_s: int = EEG_CONFIG["time_s"]
+) -> pd.DataFrame:
     """Clean the DataFrame by removing rows with NaN or infinite values and balance image groups."""
     df = df.replace([np.inf, -np.inf], np.nan)
     df = df.dropna().reset_index(drop=True)
@@ -193,7 +195,7 @@ def calculate_asymetryies(
     return results
 
 
-def calculate_valence_dominance_activation(
+def calculate_valence_dominance_arousal(
     df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONFIG, eps: float = 1e-10
 ) -> dict:
     """
@@ -868,7 +870,10 @@ def apply_baseline_percent_change(
 
 def main():
     """Main function to process EEG data"""
-    person = "virtual"
+    people = []
+    for i in range(1, 10):
+        people.append(f"E0{i+1}")
+    person = people[0]
     filename = rf"sub_data\{person}\pow.csv"
     output_dir = rf"sub_data\{person}\emotions"
 
@@ -879,7 +884,7 @@ def main():
     # Load data
     print("Loading EEG data...")
     df = load_eeg_data(filename)
-    df = valanced_df(df)
+    df = clean_slice_df(df)
     df_valanced = df.copy()
     # df.to_csv("data.csv", index=False)
     # return
@@ -887,16 +892,15 @@ def main():
     df = drop_first_image(df)
     base_prev = compute_prev_R2_baseline(df)
     df = apply_baseline_percent_change(df, base_prev_r2=base_prev)
+    print(f"Data loaded successfully. Shape: {df.shape}")
 
     # filter rest periods and first 3 seconds (Only keep I2)
     df_i2 = df[df["slice"] == "I2"].reset_index(drop=True)
 
-    print(f"Data loaded successfully. Shape: {df.shape}")
-
     # Calculate valence, dominance, and activation
     print("\nCalculating valence, dominance, and activation...")
-    asym = calculate_asymetryies(df_i2)
-    vda = calculate_valence_dominance_activation(df_i2, asym)
+    asym = calculate_asymetryies(df_i2, df)
+    vda = calculate_valence_dominance_arousal(df_i2, asym)
 
     # Save results to CSV
     print("\nSaving results...")
@@ -907,7 +911,7 @@ def main():
         vda_df_data[key] = values
 
     vda_df = pd.DataFrame(vda_df_data)
-    vda_df.to_csv(f"{output_dir}/VDA_results.csv", index=False)
+    # vda_df.to_csv(f"{output_dir}/VDA_results.csv", index=False)
     print(f"VDA results saved to '{output_dir}/VDA_results.csv'")
 
     # plot_valence_activation(vda_results, output_dir=output_dir)
