@@ -208,10 +208,14 @@ def calculate_asymetryies(
 
 
 def calculate_valence(df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONFIG, eps: float = 1e-10) -> dict:
+    """
+    Calculate valence and return results tied to the image IDs in df.
+    Each result is provided both as a per-row pd.Series (index = df['img'])
+    and as an aggregated per-image series (mean across rows for each img).
+    """
     results = {}
-    # asymmetries = calculate_asymetryies(df)
 
-    # Calculate final metrics with multiple approaches
+    # build raw method arrays (aligned with df rows)
     valence_methods = []
 
     # Valence from different alpha asymmetry methods
@@ -224,19 +228,28 @@ def calculate_valence(df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONFIG
     valence_methods.append(-np.log(ratio_raw + eps))  # Ratio as log
     valence_methods.append(-np.log(ratio_norm + eps))
 
-    # Create composite scores (weighted average)
+    # Composite score (weighted) or fallback mean
     if len(valence_methods) == 4:
-        # Weight: standard=0.3, normalized=0.3, ratio=0.2, ratio_norm=0.2
         weights = [0.3, 0.3, 0.2, 0.2]
-        results["valence"] = np.average(valence_methods, weights=weights, axis=0)
+        composite_arr = np.average(valence_methods, weights=weights, axis=0)
     else:
-        print(f"Warning: Expected 4 valence methods, got {len(valence_methods)}")
-        results["valence"] = np.mean(valence_methods, axis=0)
+        composite_arr = np.mean(valence_methods, axis=0)
 
-    # Store individual methods for comparison
+    # Create pandas Series tied to img for each method + composite
+    img_index = df["img"].reset_index(drop=True)
+    # store composite
+    composite_series = pd.Series(composite_arr, index=img_index)
+    results["valence"] = composite_series
+    results["valence_img_mean"] = composite_series.groupby(level=0).mean()
+
+    # Store individual methods labeled by asymmetry method names (from asymmetries["methods"])
     method_names = asymmetries["methods"]
     for i, method in enumerate(method_names[: len(valence_methods)]):
-        results[f"valence_{method}"] = valence_methods[i]
+        arr = valence_methods[i]
+        ser = pd.Series(arr, index=img_index)
+        results[f"valence_{method}"] = ser
+        # aggregated per image (mean)
+        results[f"valence_{method}_img_mean"] = ser.groupby(level=0).mean()
 
     return results
 
@@ -247,28 +260,38 @@ def calculate_arousal(df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONFIG
     # Enhanced arousal calculation
     frontal_electrodes = eeg_config["frontal_electrodes"]
 
-    # Multiple arousal measures
-    beta_low_activities = []
-    beta_high_activities = []
-    beta_combined_activities = []
+    # Multiple arousal measures (collect as numpy arrays for consistency)
+    beta_low_activities = [df[f"{electrode}/betaL"].to_numpy() for electrode in frontal_electrodes]
+    beta_high_activities = [df[f"{electrode}/betaH"].to_numpy() for electrode in frontal_electrodes]
+    beta_combined_activities = [low + high for low, high in zip(beta_low_activities, beta_high_activities)]
 
-    for electrode in frontal_electrodes:
-        beta_low_col = f"{electrode}/betaL"
-        beta_high_col = f"{electrode}/betaH"
-
-        beta_low_activities.append(df[beta_low_col])
-        beta_high_activities.append(df[beta_high_col])
-        beta_combined_activities.append(df[beta_low_col] + df[beta_high_col])
-
-    # Store different arousal measures
-    results["arousal_beta_low"] = np.mean(beta_low_activities, axis=0)
-    results["arousal_beta_high"] = np.mean(beta_high_activities, axis=0)
-    results["arousal_beta_combined"] = np.mean(beta_combined_activities, axis=0)
+    # Average across electrodes (axis=0 -> per-timepoint mean across electrodes)
+    arousal_beta_low_arr = np.mean(beta_low_activities, axis=0)
+    arousal_beta_high_arr = np.mean(beta_high_activities, axis=0)
+    arousal_beta_combined_arr = np.mean(beta_combined_activities, axis=0)
 
     # Primary arousal measure (combined beta for robustness)
-    results["arousal"] = results["arousal_beta_combined"]
+    arousal_arr = arousal_beta_combined_arr
 
-    # arousal by reversed frontal log
+    # Build pandas Series tied to img (like calculate_valence)
+    img_index = df["img"].reset_index(drop=True)
+
+    ser_low = pd.Series(arousal_beta_low_arr, index=img_index)
+    ser_high = pd.Series(arousal_beta_high_arr, index=img_index)
+    ser_combined = pd.Series(arousal_beta_combined_arr, index=img_index)
+    ser_primary = pd.Series(arousal_arr, index=img_index)
+
+    # Store per-row series
+    results["arousal_beta_low"] = ser_low
+    results["arousal_beta_high"] = ser_high
+    results["arousal_beta_combined"] = ser_combined
+    results["arousal"] = ser_primary
+
+    # Store aggregated per-image means
+    results["arousal_beta_low_img_mean"] = ser_low.groupby(level=0).mean()
+    results["arousal_beta_high_img_mean"] = ser_high.groupby(level=0).mean()
+    results["arousal_beta_combined_img_mean"] = ser_combined.groupby(level=0).mean()
+    results["arousal_img_mean"] = ser_primary.groupby(level=0).mean()
 
     return results
 
@@ -285,15 +308,25 @@ def calculate_dominance(df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONF
     dominance_methods.append(np.log(asymmetries["parietal_asym_ratio_alpha"] + eps))
     dominance_methods.append(np.log(asymmetries["parietal_asym_ratio_norm_alpha"] + eps))
 
-    # Dominance calculation
-    results["dominance"] = np.mean(dominance_methods, axis=0)
+    # Dominance calculation (per-row numpy array)
+    dominance_arr = np.mean(dominance_methods, axis=0)
 
-    # Store individual methods for comparison
-    method_names = asymmetries["methods"]
+    # Build pandas Series tied to img (like calculate_valence / calculate_arousal)
+    img_index = df["img"].reset_index(drop=True)
+    ser_primary = pd.Series(dominance_arr, index=img_index)
 
-    # Store individual methods
-    for i, method in enumerate(method_names[: len(dominance_methods)]):
-        results[f"dominance_{method}"] = dominance_methods[i]
+    # Store per-row series and aggregated per-image mean
+    results["dominance"] = ser_primary
+    results["dominance_img_mean"] = ser_primary.groupby(level=0).mean()
+
+    # Store individual methods for comparison (per-row + per-image mean)
+    method_names = asymmetries.get("methods", [])
+    for i in range(min(len(method_names), len(dominance_methods))):
+        arr = dominance_methods[i]
+        ser = pd.Series(arr, index=img_index)
+        key = f"dominance_{method_names[i]}"
+        results[key] = ser
+        results[f"{key}_img_mean"] = ser.groupby(level=0).mean()
 
     return results
 
