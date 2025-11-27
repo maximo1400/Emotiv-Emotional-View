@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings
 import os, shutil
+import pickle
 
 warnings.filterwarnings("ignore")
 
@@ -23,31 +24,26 @@ EEG_CONFIG = {
     "electrodes": ["AF3", "F7", "F3", "FC5", "T7", "P7", "O1", "O2", "P8", "T8", "FC6", "F4", "F8", "AF4"],
     "frequency_bands": ["alpha", "betaL", "betaH", "theta", "gamma"],
     "pow_columns": [
-        "AF3/theta","AF3/alpha","AF3/betaL","AF3/betaH","AF3/gamma",
-        "F7/theta","F7/alpha","F7/betaL","F7/betaH","F7/gamma",
-        "F3/theta","F3/alpha","F3/betaL","F3/betaH","F3/gamma",
-        "FC5/theta","FC5/alpha","FC5/betaL","FC5/betaH","FC5/gamma",
-        "T7/theta","T7/alpha","T7/betaL","T7/betaH","T7/gamma",
-        "P7/theta","P7/alpha","P7/betaL","P7/betaH","P7/gamma",
-        "O1/theta","O1/alpha","O1/betaL","O1/betaH","O1/gamma",
-        "O2/theta","O2/alpha","O2/betaL","O2/betaH","O2/gamma",
-        "P8/theta","P8/alpha","P8/betaL","P8/betaH","P8/gamma",
-        "T8/theta","T8/alpha","T8/betaL","T8/betaH","T8/gamma",
-        "FC6/theta","FC6/alpha","FC6/betaL","FC6/betaH","FC6/gamma",
-        "F4/theta","F4/alpha","F4/betaL","F4/betaH","F4/gamma",
-        "F8/theta","F8/alpha","F8/betaL","F8/betaH","F8/gamma",
-        "AF4/theta","AF4/alpha","AF4/betaL","AF4/betaH","AF4/gamma"],
+        "AF3/theta", "AF3/alpha", "AF3/betaL", "AF3/betaH", "AF3/gamma",
+        "F7/theta",  "F7/alpha",  "F7/betaL",  "F7/betaH",  "F7/gamma",
+        "F3/theta",  "F3/alpha",  "F3/betaL",  "F3/betaH",  "F3/gamma",
+        "FC5/theta", "FC5/alpha", "FC5/betaL", "FC5/betaH", "FC5/gamma",
+        "T7/theta",  "T7/alpha",  "T7/betaL",  "T7/betaH",  "T7/gamma",
+        "P7/theta",  "P7/alpha",  "P7/betaL",  "P7/betaH",  "P7/gamma",
+        "O1/theta",  "O1/alpha",  "O1/betaL",  "O1/betaH",  "O1/gamma",
+        "O2/theta",  "O2/alpha",  "O2/betaL",  "O2/betaH",  "O2/gamma",
+        "P8/theta",  "P8/alpha",  "P8/betaL",  "P8/betaH",  "P8/gamma",
+        "T8/theta",  "T8/alpha",  "T8/betaL",  "T8/betaH",  "T8/gamma",
+        "FC6/theta", "FC6/alpha", "FC6/betaL", "FC6/betaH", "FC6/gamma",
+        "F4/theta",  "F4/alpha",  "F4/betaL",  "F4/betaH",  "F4/gamma",
+        "F8/theta",  "F8/alpha",  "F8/betaL",  "F8/betaH",  "F8/gamma",
+        "AF4/theta", "AF4/alpha", "AF4/betaL", "AF4/betaH", "AF4/gamma"],
     "time_s": 10,  # Duration each image is shown in seconds plus rest periods
 }
 
-oasis_categories = {
-    "High_Valence": ["Dog 6", "Lake 9", "Rainbow 2", "Sunset 3"],
-    "Low_Valence": ["Miserable pose 3", "Tumor 1", "Fire 9", "Cockroach 1"],
-    "High_Arousal": ["Explosion 5", "Parachuting 4", "Snake 4", "Lava 1"],
-    "Low_Arousal": ["Wall 2","Rocks 6","Cotton swabs 3","Office supplies 2","Socks 1",],
-}
-
-output_dir = "sub_data"
+img_info_path = "OASIS_database_2016/all_info.pkl"
+input_dir = "sub_data"
+output_dir = "sub_data/emotions"
 # fmt: on
 
 
@@ -62,6 +58,20 @@ def load_eeg_data(filename: str) -> pd.DataFrame:
     df = df.drop("round", axis=1)
     df = df[~df["img"].eq("end")]
     return df
+
+
+def load_image_info(pickle_path: str = img_info_path) -> pd.DataFrame:
+    """Load image information from pickle file"""
+    with open(pickle_path, "rb") as f:
+        img_info = pickle.load(f)
+    all_info = {}
+    all_info["oasis_categories"] = img_info["oasis_categories"]
+    all_info["oasis_sec_categories"] = img_info["oasis_sec_categories"]
+    all_info["img_w_cat"] = img_info["img_w_cat"]
+    # all_info["img"] = img_info["img"]
+    # all_info["img_order"] = img_info["img_order"]
+
+    return all_info
 
 
 def clean_slice_df(df: pd.DataFrame, time_s: int = EEG_CONFIG["time_s"]) -> pd.DataFrame:
@@ -836,32 +846,37 @@ def apply_baseline_percent_change(
 
 def main():
     """Main function to process EEG data"""
-    people = []
-    for i in range(1, 10):
-        people.append(f"E0{i+1}")
-    person = people[0]
-    filename = rf"sub_data\{person}\pow.csv"
-    output_dir = rf"sub_data\{person}\emotions"
+    # Populate `people` with folder names found in sub_data
+    people = [name for name in os.listdir(input_dir) if os.path.isdir(os.path.join(input_dir, name))]
+
+    img_info = load_image_info()
+    oasis_categories = img_info["oasis_categories"]
 
     if os.path.exists(output_dir):
         shutil.rmtree(output_dir)  # remove existing directory if it exists
     os.mkdir(output_dir)
 
+    # for person in people:
+    person = people[0]
+    filename = rf"{input_dir}\{person}\pow.csv"
+
     # Load data
-    print("Loading EEG data...")
+    print(f"Loading EEG data from {person}")
     df = load_eeg_data(filename)
     df = clean_slice_df(df)
-    df_valanced = df.copy()
     # df.to_csv("data.csv", index=False)
     # return
 
+    # TODO: nicer normailzation
+    # base_prev = compute_prev_R2_baseline(df)
+    # df = apply_baseline_percent_change(df, base_prev_r2=base_prev)
+
     df = drop_first_image(df)
-    base_prev = compute_prev_R2_baseline(df)
-    df = apply_baseline_percent_change(df, base_prev_r2=base_prev)
     print(f"Data loaded successfully. Shape: {df.shape}")
 
     # filter rest periods and first 3 seconds (Only keep I2)
     df_i2 = df[df["slice"] == "I2"].reset_index(drop=True)
+    # df_i2 = df.copy()
 
     # Calculate valence, dominance, and activation
     print("\nCalculating valence, dominance, and activation...")
