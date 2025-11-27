@@ -18,7 +18,7 @@ def main() -> None:
 
     # Init Train
     is_demo = False
-    profile_name = "E10"
+    profile_name = "E11"
     img_names_queue = queue.Queue()
 
     # list data streams

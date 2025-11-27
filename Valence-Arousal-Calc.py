@@ -87,17 +87,25 @@ def clean_slice_df(df: pd.DataFrame, time_s: int = EEG_CONFIG["time_s"]) -> pd.D
     balanced = df.groupby("img", group_keys=False).apply(lambda g: g.tail(min_count))
 
     balanced["slice"] = pd.NA
-    I1 = min_count * 1 // time_s
-    I2 = min_count * 4 // time_s
-    I3 = min_count * 6 // time_s
+    # I1 = min_count * 1 // time_s
+    # I2 = min_count * 4 // time_s
+    # I3 = min_count * 6 // time_s
+    # R1 = min_count * 8 // time_s
+    # R2 = min_count
+    # for img in balanced["img"].unique():
+    #     indices = balanced[balanced["img"] == img].index
+    #     balanced.loc[indices[:I1], "slice"] = "I1"
+    #     balanced.loc[indices[I1:I2], "slice"] = "I2"
+    #     balanced.loc[indices[I2:I3], "slice"] = "I3"
+    #     balanced.loc[indices[I3:R1], "slice"] = "R1"
+    #     balanced.loc[indices[R1:R2], "slice"] = "R2"
+    I = min_count * 6 // time_s
     R1 = min_count * 8 // time_s
     R2 = min_count
     for img in balanced["img"].unique():
         indices = balanced[balanced["img"] == img].index
-        balanced.loc[indices[:I1], "slice"] = "I1"
-        balanced.loc[indices[I1:I2], "slice"] = "I2"
-        balanced.loc[indices[I2:I3], "slice"] = "I3"
-        balanced.loc[indices[I3:R1], "slice"] = "R1"
+        balanced.loc[indices[:I], "slice"] = "I"
+        balanced.loc[indices[I:R1], "slice"] = "R1"
         balanced.loc[indices[R1:R2], "slice"] = "R2"
 
     return balanced.reset_index(drop=True)
@@ -848,6 +856,7 @@ def main():
     """Main function to process EEG data"""
     # Populate `people` with folder names found in sub_data
     people = [name for name in os.listdir(input_dir) if os.path.isdir(os.path.join(input_dir, name))]
+    people = [p for p in people if p.startswith("E")]
 
     img_info = load_image_info()
     oasis_categories = img_info["oasis_categories"]
@@ -875,13 +884,14 @@ def main():
     print(f"Data loaded successfully. Shape: {df.shape}")
 
     # filter rest periods and first 3 seconds (Only keep I2)
-    df_i2 = df[df["slice"] == "I2"].reset_index(drop=True)
+    # df_i2 = df[df["slice"] == "I2"].reset_index(drop=True)
+    df_i = df[df["slice"] == "I"].reset_index(drop=True)
     # df_i2 = df.copy()
 
     # Calculate valence, dominance, and activation
     print("\nCalculating valence, dominance, and activation...")
-    asym = calculate_asymetryies(df_i2, df)
-    vda = calculate_valence_dominance_arousal(df_i2, asym)
+    asym = calculate_asymetryies(df_i, df)
+    vda = calculate_valence_dominance_arousal(df_i, asym)
 
     # Save results to CSV
     print("\nSaving results...")
