@@ -244,10 +244,10 @@ def calculate_valence(df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONFIG
 def calculate_arousal(df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONFIG, eps: float = 1e-10) -> dict:
     results = {}
 
-    # Enhanced activation calculation
+    # Enhanced arousal calculation
     frontal_electrodes = eeg_config["frontal_electrodes"]
 
-    # Multiple activation measures
+    # Multiple arousal measures
     beta_low_activities = []
     beta_high_activities = []
     beta_combined_activities = []
@@ -260,15 +260,15 @@ def calculate_arousal(df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONFIG
         beta_high_activities.append(df[beta_high_col])
         beta_combined_activities.append(df[beta_low_col] + df[beta_high_col])
 
-    # Store different activation measures
-    results["activation_beta_low"] = np.mean(beta_low_activities, axis=0)
-    results["activation_beta_high"] = np.mean(beta_high_activities, axis=0)
-    results["activation_beta_combined"] = np.mean(beta_combined_activities, axis=0)
+    # Store different arousal measures
+    results["arousal_beta_low"] = np.mean(beta_low_activities, axis=0)
+    results["arousal_beta_high"] = np.mean(beta_high_activities, axis=0)
+    results["arousal_beta_combined"] = np.mean(beta_combined_activities, axis=0)
 
-    # Primary activation measure (combined beta for robustness)
-    results["activation"] = results["activation_beta_combined"]
+    # Primary arousal measure (combined beta for robustness)
+    results["arousal"] = results["arousal_beta_combined"]
 
-    # Activation by reversed frontal log
+    # arousal by reversed frontal log
 
     return results
 
@@ -298,7 +298,7 @@ def calculate_dominance(df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONF
     return results
 
 
-def plot_valence_activation(
+def plot_valence_arousal(
     vda_results,
     save_plot=True,
     dominance_is_size=True,
@@ -306,21 +306,21 @@ def plot_valence_activation(
     output_dir=output_dir,
 ):
     """
-    Create a scatter plot of valence vs activation with quadrant analysis
+    Create a scatter plot of valence vs arousal with quadrant analysis
     """
-    if "valence" not in vda_results or "activation" not in vda_results or "dominance" not in vda_results:
-        print("Error: Valence, activation, or dominance data not available for plotting")
+    if "valence" not in vda_results or "arousal" not in vda_results or "dominance" not in vda_results:
+        print("Error: Valence, arousal, or dominance data not available for plotting")
         return
 
     valence = vda_results["valence"]
-    activation = vda_results["activation"]
+    arousal = vda_results["arousal"]
     dominance = vda_results["dominance"]
 
     n_points = len(valence)
     n_bins = n_points // bin_size
 
     valence_binned = []
-    activation_binned = []
+    arousal_binned = []
     dominance_binned = []
 
     for i in range(n_bins):
@@ -328,12 +328,12 @@ def plot_valence_activation(
         end_idx = start_idx + bin_size
 
         valence_binned.append(np.mean(valence[start_idx:end_idx]))
-        activation_binned.append(np.mean(activation[start_idx:end_idx]))
+        arousal_binned.append(np.mean(arousal[start_idx:end_idx]))
         dominance_binned.append(np.mean(dominance[start_idx:end_idx]))
 
     # Convert to numpy arrays
     valence = np.array(valence_binned)
-    activation = np.array(activation_binned)
+    arousal = np.array(arousal_binned)
     dominance = np.array(dominance_binned)
 
     print(f"Reduced from {n_points} to {len(valence)} points")
@@ -350,7 +350,7 @@ def plot_valence_activation(
     # Create scatter plot
     plt.scatter(
         valence,
-        activation,
+        arousal,
         alpha=0.7,
         s=sizes,
         c="blue",
@@ -360,7 +360,7 @@ def plot_valence_activation(
 
     # Add quadrant lines
     plt.axhline(
-        y=np.mean(activation),
+        y=np.mean(arousal),
         color="red",
         linestyle="--",
         alpha=0.6,
@@ -376,7 +376,7 @@ def plot_valence_activation(
     # Force (0,0) as the visual center
     # TODO : Use a more method with consistent axis limits
     x_absmax = max(abs(np.min(valence)), abs(np.max(valence)), 0.1) * 1.1
-    y_absmax = max(abs(np.min(activation)), abs(np.max(activation)), 0.1) * 1.1
+    y_absmax = max(abs(np.min(arousal)), abs(np.max(arousal)), 0.1) * 1.1
     axis_limit = max(x_absmax, y_absmax)
     plt.xlim(-axis_limit, axis_limit)
     plt.ylim(-axis_limit, axis_limit)
@@ -388,7 +388,7 @@ def plot_valence_activation(
     plt.text(
         x_range[1] * 0.8,
         y_range[1] * 0.9,
-        "High Activation\nPositive Valence\n(Happy/Excited)",
+        "High Arousal\nPositive Valence\n(Happy/Excited)",
         ha="center",
         va="center",
         fontsize=10,
@@ -398,7 +398,7 @@ def plot_valence_activation(
     plt.text(
         x_range[0] * 0.8,
         y_range[1] * 0.9,
-        "High Activation\nNegative Valence\n(Angry/Stressed)",
+        "High Arousal\nNegative Valence\n(Angry/Stressed)",
         ha="center",
         va="center",
         fontsize=10,
@@ -408,7 +408,7 @@ def plot_valence_activation(
     plt.text(
         x_range[1] * 0.8,
         y_range[0] * 0.8,
-        "Low Activation\nPositive Valence\n(Calm/Relaxed)",
+        "Low Arousal\nPositive Valence\n(Calm/Relaxed)",
         ha="center",
         va="center",
         fontsize=10,
@@ -418,7 +418,7 @@ def plot_valence_activation(
     plt.text(
         x_range[0] * 0.8,
         y_range[0] * 0.8,
-        "Low Activation\nNegative Valence\n(Sad/Depressed)",
+        "Low Arousal\nNegative Valence\n(Sad/Depressed)",
         ha="center",
         va="center",
         fontsize=10,
@@ -427,9 +427,9 @@ def plot_valence_activation(
 
     # Customize the plot
     plt.xlabel("Valence (Negative ← → Positive)", fontsize=12, fontweight="bold")
-    plt.ylabel("Activation (Low ← → High)", fontsize=12, fontweight="bold")
+    plt.ylabel("Arousal (Low ← → High)", fontsize=12, fontweight="bold")
     plt.title(
-        "EEG-based Emotional State: Valence vs Activation",
+        "EEG-based Emotional State: Valence vs Arousal",
         fontsize=14,
         fontweight="bold",
     )
@@ -438,14 +438,14 @@ def plot_valence_activation(
     # Add statistics text
     stats_text = f"Data Points: {len(valence)}\n"
     stats_text += f"Valence: μ={np.mean(valence):.3f}, σ={np.std(valence):.3f}\n"
-    stats_text += f"Activation: μ={np.mean(activation):.3f}, σ={np.std(activation):.3f}\n"
+    stats_text += f"Arousal: μ={np.mean(arousal):.3f}, σ={np.std(arousal):.3f}\n"
     stats_text += f"Dominance: μ={np.mean(dominance):.3f}, σ={np.std(dominance):.3f}\n"
 
     # Add quadrant counts
-    q1 = np.sum((valence >= 0) & (activation >= 0))  # Happy
-    q2 = np.sum((valence < 0) & (activation >= 0))  # Angry
-    q3 = np.sum((valence < 0) & (activation < 0))  # Sad
-    q4 = np.sum((valence >= 0) & (activation < 0))  # Calm
+    q1 = np.sum((valence >= 0) & (arousal >= 0))  # Happy
+    q2 = np.sum((valence < 0) & (arousal >= 0))  # Angry
+    q3 = np.sum((valence < 0) & (arousal < 0))  # Sad
+    q4 = np.sum((valence >= 0) & (arousal < 0))  # Calm
 
     stats_text += f"Quadrants: Happy={q1}, Angry={q2}, Sad={q3}, Calm={q4}"
 
@@ -484,23 +484,23 @@ def plot_valence_activation(
     plt.tight_layout()
 
     if save_plot:
-        plt.savefig(f"{output_dir}/valence_activation_plot.png", dpi=300, bbox_inches="tight")
-        print("Plot saved as 'valence_activation_plot.png'")
+        plt.savefig(f"{output_dir}/valence_arousal_plot.png", dpi=300, bbox_inches="tight")
+        print("Plot saved as 'valence_arousal_plot.png'")
 
     plt.show()
 
 
 def plot_time_series(vda_results, save_plot=True, output_dir=output_dir):
     """
-    Create time series plots for valence, activation, and dominance
+    Create time series plots for valence, arousal, and dominance
     """
     fig, axes = plt.subplots(3, 1, figsize=(12, 10))
 
-    metrics = ["valence", "activation", "dominance"]
+    metrics = ["valence", "arousal", "dominance"]
     colors = ["blue", "red", "green"]
     labels = [
         "Valence (Negative ← → Positive)",
-        "Activation (Low ← → High)",
+        "Arousal (Low ← → High)",
         "Dominance (Submissive ← → Dominant)",
     ]
 
@@ -540,7 +540,7 @@ def plot_time_series(vda_results, save_plot=True, output_dir=output_dir):
     plt.show()
 
 
-def plot_valence_activation_methods(
+def plot_valence_arousal_methods(
     vda_results,
     save_plot=True,
     dominance_is_size=True,
@@ -548,17 +548,17 @@ def plot_valence_activation_methods(
     output_dir=output_dir,
 ):
     """
-    Create a scatter plot showing all valence and activation calculation methods with different colors
+    Create a scatter plot showing all valence and arousal calculation methods with different colors
     """
     # Define the methods we want to plot
     # valence_methods = ["valence_standard", "valence_normalized", "valence_ratio", "valence_ratio_norm"]
     valence_methods = ["valence_normalized", "valence_ratio_norm", "valence"]
-    # activation_methods = ["activation_beta_low", "activation_beta_high", "activation_beta_combined"]
-    activation_methods = ["activation_beta_low", "activation"]
+    # arousal_methods = ["arousal_beta_low", "arousal_beta_high", "arousal_beta_combined"]
+    arousal_methods = ["arousal_beta_low", "arousal"]
 
     # Check if methods exist in results
     available_valence = [method for method in valence_methods if method in vda_results]
-    available_activation = [method for method in activation_methods if method in vda_results]
+    available_arousal = [method for method in arousal_methods if method in vda_results]
 
     # Define colors for different combinations
     # colors = ["blue", "red", "green", "orange", "purple", "brown", "pink", "gray", "olive", "cyan"]
@@ -593,34 +593,34 @@ def plot_valence_activation_methods(
     # Plot all combinations
     plot_idx = 0
     all_valence = []
-    all_activation = []
+    all_arousal = []
     custom_legend_elements = []
 
     for v_method in available_valence:
-        for a_method in available_activation:
+        for a_method in available_arousal:
             if plot_idx >= len(colors):
                 break
 
             # Get data
             valence_data = vda_results[v_method]
-            activation_data = vda_results[a_method]
+            arousal_data = vda_results[a_method]
 
             # Apply binning
             valence_binned = []
-            activation_binned = []
+            arousal_binned = []
 
             for i in range(n_bins):
                 start_idx = i * bin_size
                 end_idx = start_idx + bin_size
                 valence_binned.append(np.mean(valence_data[start_idx:end_idx]))
-                activation_binned.append(np.mean(activation_data[start_idx:end_idx]))
+                arousal_binned.append(np.mean(arousal_data[start_idx:end_idx]))
 
             valence_binned = np.array(valence_binned)
-            activation_binned = np.array(activation_binned)
+            arousal_binned = np.array(arousal_binned)
 
             # Store for axis limits calculation
             all_valence.extend(valence_binned)
-            all_activation.extend(activation_binned)
+            all_arousal.extend(arousal_binned)
 
             # Create scatter plot
             color = colors[plot_idx]
@@ -628,19 +628,19 @@ def plot_valence_activation_methods(
 
             # Create cleaner label
             v_label = v_method.replace("valence_", "").replace("_", " ").title()
-            a_label = a_method.replace("activation_", "").replace("_", " ").title()
+            a_label = a_method.replace("arousal_", "").replace("_", " ").title()
             label = f"{v_label} + {a_label}"
 
             plt.scatter(
                 valence_binned,
-                activation_binned,
+                arousal_binned,
                 alpha=0.6,
                 s=sizes,
                 c=color,
                 marker=marker,
                 edgecolors="black",
                 linewidth=0.3,
-                # label=f"{v_method.replace('valence_', 'V:')} + {a_method.replace('activation_', 'A:')}",
+                # label=f"{v_method.replace('valence_', 'V:')} + {a_method.replace('arousal_', 'A:')}",
                 # label=label,
             )
             custom_legend_elements.append(
@@ -663,13 +663,13 @@ def plot_valence_activation_methods(
 
     # Convert to numpy arrays for axis calculations
     all_valence = np.array(all_valence)
-    all_activation = np.array(all_activation)
+    all_arousal = np.array(all_arousal)
 
     # Add reference lines
     plt.axhline(y=0, color="black", linestyle="-", alpha=0.8, linewidth=2, label="Zero line")
     plt.axvline(x=0, color="black", linestyle="-", alpha=0.8, linewidth=2)
     plt.axhline(
-        y=np.mean(all_activation),
+        y=np.mean(all_arousal),
         color="red",
         linestyle="--",
         alpha=0.6,
@@ -680,7 +680,7 @@ def plot_valence_activation_methods(
 
     # Force (0,0) as the visual center
     x_absmax = max(abs(np.min(all_valence)), abs(np.max(all_valence)), 0.1) * 1.1
-    y_absmax = max(abs(np.min(all_activation)), abs(np.max(all_activation)), 0.1) * 1.1
+    y_absmax = max(abs(np.min(all_arousal)), abs(np.max(all_arousal)), 0.1) * 1.1
     axis_limit = max(x_absmax, y_absmax)
     plt.xlim(-axis_limit, axis_limit)
     plt.ylim(-axis_limit, axis_limit)
@@ -693,7 +693,7 @@ def plot_valence_activation_methods(
     plt.text(
         x_range[1] * 0.8,
         y_range[1] * 0.9,
-        "High Activation\nPositive Valence\n(Happy/Excited)",
+        "High Arousal\nPositive Valence\n(Happy/Excited)",
         ha="center",
         va="center",
         fontsize=9,
@@ -703,7 +703,7 @@ def plot_valence_activation_methods(
     plt.text(
         x_range[0] * 0.8,
         y_range[1] * 0.9,
-        "High Activation\nNegative Valence\n(Angry/Stressed)",
+        "High Arousal\nNegative Valence\n(Angry/Stressed)",
         ha="center",
         va="center",
         fontsize=9,
@@ -713,7 +713,7 @@ def plot_valence_activation_methods(
     plt.text(
         x_range[1] * 0.8,
         y_range[0] * 0.8,
-        "Low Activation\nPositive Valence\n(Calm/Relaxed)",
+        "Low Arousal\nPositive Valence\n(Calm/Relaxed)",
         ha="center",
         va="center",
         fontsize=9,
@@ -723,7 +723,7 @@ def plot_valence_activation_methods(
     plt.text(
         x_range[0] * 0.8,
         y_range[0] * 0.8,
-        "Low Activation\nNegative Valence\n(Sad/Depressed)",
+        "Low Arousal\nNegative Valence\n(Sad/Depressed)",
         ha="center",
         va="center",
         fontsize=9,
@@ -732,7 +732,7 @@ def plot_valence_activation_methods(
 
     # Customize the plot
     plt.xlabel("Valence (Negative ← → Positive)", fontsize=12, fontweight="bold")
-    plt.ylabel("Activation (Low ← → High)", fontsize=12, fontweight="bold")
+    plt.ylabel("Arousal (Low ← → High)", fontsize=12, fontweight="bold")
     plt.title(
         "EEG Emotional State: All Calculation Methods Comparison",
         fontsize=14,
@@ -744,7 +744,7 @@ def plot_valence_activation_methods(
     stats_text = f"Methods plotted: {plot_idx}\n"
     stats_text += f"Points per method: {len(dominance)}\n"
     stats_text += f"Valence range: [{np.min(all_valence):.3f}, {np.max(all_valence):.3f}]\n"
-    stats_text += f"Activation range: [{np.min(all_activation):.3f}, {np.max(all_activation):.3f}]\n"
+    stats_text += f"Arousal range: [{np.min(all_arousal):.3f}, {np.max(all_arousal):.3f}]\n"
     stats_text += f"Dominance: μ={np.mean(dominance):.3f}, σ={np.std(dominance):.3f}"
 
     plt.text(
@@ -787,11 +787,11 @@ def plot_valence_activation_methods(
 
     if save_plot:
         plt.savefig(
-            f"{output_dir}/valence_activation_methods_comparison.png",
+            f"{output_dir}/valence_arousal_methods_comparison.png",
             dpi=300,
             bbox_inches="tight",
         )
-        print("Plot saved as 'valence_activation_methods_comparison.png'")
+        print("Plot saved as 'valence_arousal_methods_comparison.png'")
 
     plt.show()
 
@@ -799,7 +799,7 @@ def plot_valence_activation_methods(
     print("\nMethod combinations plotted:")
     plot_idx = 0
     for v_method in available_valence:
-        for a_method in available_activation:
+        for a_method in available_arousal:
             if plot_idx >= len(colors):
                 break
             print(f"{plot_idx + 1}. {v_method} + {a_method} (Color: {colors[plot_idx]})")
@@ -898,8 +898,8 @@ def main():
     df_i = df[df["slice"] == "I"].reset_index(drop=True)
     # df_i2 = df.copy()
 
-    # Calculate valence, dominance, and activation
-    print("\nCalculating valence, dominance, and activation...")
+    # Calculate valence, dominance, and arousal
+    print("\nCalculating valence, dominance, and arousal...")
     asym = calculate_asymetryies(df_i, df)
     va = calculate_valence(df_i, asym)
     ar = calculate_arousal(df_i, asym)
@@ -921,9 +921,9 @@ def main():
     # vda_df.to_csv(f"{output_dir}/VDA_results.csv", index=False)
     print(f"VDA results saved to '{output_dir}/VDA_results.csv'")
 
-    # plot_valence_activation(vda_results, output_dir=output_dir)
+    # plot_valence_arousal(vda_results, output_dir=output_dir)
     plot_time_series(vda, output_dir=output_dir)
-    # plot_valence_activation_methods(vda_results, bin_size=20, output_dir=output_dir)
+    # plot_valence_arousal_methods(vda_results, bin_size=20, output_dir=output_dir)
 
     return
 
