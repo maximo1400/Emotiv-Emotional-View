@@ -207,20 +207,12 @@ def calculate_asymetryies(
     return results
 
 
-def calculate_valence_dominance_arousal(
-    df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONFIG, eps: float = 1e-10
-) -> dict:
-    """
-    Calculate valence, dominance, and activation using multiple EEG asymmetry methods
-    Based on Davidson's model with enhanced normalization and validation
-    """
-
+def calculate_valence(df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONFIG, eps: float = 1e-10) -> dict:
     results = {}
     # asymmetries = calculate_asymetryies(df)
 
     # Calculate final metrics with multiple approaches
     valence_methods = []
-    dominance_methods = []
 
     # Valence from different alpha asymmetry methods
     valence_methods.append(-asymmetries["frontal_asym_alpha"])  # Standard log
@@ -231,12 +223,6 @@ def calculate_valence_dominance_arousal(
     ratio_norm = asymmetries["frontal_asym_ratio_norm_alpha"]
     valence_methods.append(-np.log(ratio_raw + eps))  # Ratio as log
     valence_methods.append(-np.log(ratio_norm + eps))
-
-    # Dominance from parietal asymmetries
-    dominance_methods.append(asymmetries["parietal_asym_alpha"])
-    dominance_methods.append(asymmetries["parietal_asym_norm_alpha"])
-    dominance_methods.append(np.log(asymmetries["parietal_asym_ratio_alpha"] + eps))
-    dominance_methods.append(np.log(asymmetries["parietal_asym_ratio_norm_alpha"] + eps))
 
     # Create composite scores (weighted average)
     if len(valence_methods) == 4:
@@ -252,12 +238,11 @@ def calculate_valence_dominance_arousal(
     for i, method in enumerate(method_names[: len(valence_methods)]):
         results[f"valence_{method}"] = valence_methods[i]
 
-    # Dominance calculation
-    results["dominance"] = np.mean(dominance_methods, axis=0)
+    return results
 
-    # Store individual methods
-    for i, method in enumerate(method_names[: len(dominance_methods)]):
-        results[f"dominance_{method}"] = dominance_methods[i]
+
+def calculate_arousal(df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONFIG, eps: float = 1e-10) -> dict:
+    results = {}
 
     # Enhanced activation calculation
     frontal_electrodes = eeg_config["frontal_electrodes"]
@@ -284,6 +269,31 @@ def calculate_valence_dominance_arousal(
     results["activation"] = results["activation_beta_combined"]
 
     # Activation by reversed frontal log
+
+    return results
+
+
+def calculate_dominance(df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONFIG, eps: float = 1e-10) -> dict:
+    results = {}
+
+    # Calculate final metrics with multiple approaches
+    dominance_methods = []
+
+    # Dominance from parietal asymmetries
+    dominance_methods.append(asymmetries["parietal_asym_alpha"])
+    dominance_methods.append(asymmetries["parietal_asym_norm_alpha"])
+    dominance_methods.append(np.log(asymmetries["parietal_asym_ratio_alpha"] + eps))
+    dominance_methods.append(np.log(asymmetries["parietal_asym_ratio_norm_alpha"] + eps))
+
+    # Dominance calculation
+    results["dominance"] = np.mean(dominance_methods, axis=0)
+
+    # Store individual methods for comparison
+    method_names = asymmetries["methods"]
+
+    # Store individual methods
+    for i, method in enumerate(method_names[: len(dominance_methods)]):
+        results[f"dominance_{method}"] = dominance_methods[i]
 
     return results
 
@@ -891,10 +901,16 @@ def main():
     # Calculate valence, dominance, and activation
     print("\nCalculating valence, dominance, and activation...")
     asym = calculate_asymetryies(df_i, df)
-    vda = calculate_valence_dominance_arousal(df_i, asym)
+    va = calculate_valence(df_i, asym)
+    ar = calculate_arousal(df_i, asym)
+    dom = calculate_dominance(df_i, asym)
 
     # Save results to CSV
     print("\nSaving results...")
+
+    vda = va | ar | dom
+    # for key, val in vda.items():
+    #     print(all(vda2[key] == vda[key]))
 
     # Prepare VDA results for saving
     vda_df_data = {}
