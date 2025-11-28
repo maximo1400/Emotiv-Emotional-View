@@ -926,6 +926,7 @@ def apply_baseline_percent_change(
 def plot_time_serie_with_images(
     vda: dict,
     df: pd.DataFrame,
+    img_seq: list,
     img_category_map: dict,
     calc_method: str = "arousal_norm",
     emotion_type: str = "arousal",
@@ -939,27 +940,54 @@ def plot_time_serie_with_images(
     Plot the valence/arousal time series with image labels and background coloring for
     images in high_val_list (green) and low_val_list (red).
 
-    Parameters:
-    - connect_segments: if False, the line will not be connected between different image segments
-      (gaps will appear between segments). If True (default), the series is plotted as a continuous line.
+    If img_seq is provided (non-empty), reorder the rows so image blocks follow img_seq,
+    preserving within-image time order. Any images present in df but not in img_seq are
+    appended after the seq in their original order.
     """
-    high_list = img_category_map[f"high_{emotion_type}"]
-    low_list = img_category_map[f"low_{emotion_type}"]
-    serie = vda[calc_method]
-    # ensure 1D numpy array for plotting and aligned image list
-    y = pd.Series(serie).reset_index(drop=True).to_numpy()
+    high_list = set(img_category_map.get(f"high_{emotion_type}", []) or [])
+    low_list = set(img_category_map.get(f"low_{emotion_type}", []) or [])
+
+    # Original imgs and series
+    imgs_orig = df["img"].reset_index(drop=True).astype(str).tolist()
+    serie_raw = vda.get(calc_method)
+
+    # Build ordered index using img_seq if provided
+    ordered_idxs = []
+    if img_seq:
+        seen = set()
+        # Add indices for images in img_seq in that order
+        for img in img_seq:
+            matches = df.index[df["img"].astype(str) == str(img)].tolist()
+            for idx in matches:
+                if idx not in seen:
+                    ordered_idxs.append(idx)
+                    seen.add(idx)
+        # Append any remaining indices (images in df not in img_seq), preserving original order
+        for idx in df.index.tolist():
+            if idx not in seen:
+                ordered_idxs.append(idx)
+                seen.add(idx)
+    else:
+        ordered_idxs = df.index.tolist()
+
+    if not ordered_idxs:
+        print("No data to plot.")
+        return
+
+    # Reorder df
+    df_ord = df.loc[ordered_idxs].reset_index(drop=True)
+
+    # Prepare y (series) aligned to df_ord
+    serie_s = pd.Series(serie_raw).reset_index(drop=True)
+
+    # reorder per-row series
+    y_series = serie_s.iloc[ordered_idxs].reset_index(drop=True)
+
+    # Final numpy arrays for plotting
+    y = y_series.reset_index(drop=True).to_numpy()
     n = len(y)
     x = np.arange(n)
-
-    imgs = df["img"].reset_index(drop=True).astype(str).to_list()
-    if len(imgs) != n:
-        # fallback: try to use the valence/arousal index if it encodes images
-        print("Warning: df img length does not match valence/arousal length. Using valence/arousal index for images.")
-        try:
-            imgs = pd.Series(serie).index.to_list()
-            imgs = [str(i) for i in imgs]
-        except Exception:
-            imgs = [""] * n
+    imgs = df_ord["img"].reset_index(drop=True).astype(str).tolist()
 
     # find contiguous segments of the same image
     segments = []
@@ -986,19 +1014,23 @@ def plot_time_serie_with_images(
             seg_x = np.arange(s, e)
             seg_y = y[s:e]
             if len(seg_x) == 1:
-                # single point: draw a marker
                 ax.plot(seg_x, seg_y, marker="o", color=line_color, markersize=4, alpha=0.9, linestyle="None")
             else:
                 ax.plot(seg_x, seg_y, color=line_color, linewidth=1.5, alpha=0.9)
 
-    ax.axhline(y=np.mean(y) if n > 0 else 0.0, color="black", linestyle="--", alpha=0.6, linewidth=1)
+    # Plot mean line
+    # ax.axhline(y=np.nanmean(y) if n > 0 else 0.0, color="black", linestyle="--", alpha=0.6, linewidth=1)
 
     # shading and labels
     high_color = "lightgreen"
     low_color = "lightcoral"
 
     # compute y placement for labels (below the series)
-    y_min, y_max = np.min(y) if n > 0 else 0.0, np.max(y) if n > 0 else 0.0
+    finite_y = y[np.isfinite(y)] if n > 0 else np.array([0.0])
+    if finite_y.size == 0:
+        y_min, y_max = 0.0, 0.0
+    else:
+        y_min, y_max = np.min(finite_y), np.max(finite_y)
     y_range = max(1e-6, y_max - y_min)
     label_y = y_min - 0.06 * y_range  # put labels slightly below the minimum
     # expand y limits to ensure labels are visible
@@ -1018,14 +1050,13 @@ def plot_time_serie_with_images(
             ax.axvspan(s - 0.5, e - 0.5, facecolor=col, alpha=0.25, edgecolor=None)
 
         # label in the center of the segment: show img id and optionally category
-        label = img_id
+        label = str(img_id)
         if img_category_map and isinstance(img_category_map, dict):
             cat = img_category_map.get(img_id)
             if cat is not None:
                 label = f"{img_id}\n{cat}"
 
         seg_len = e - s
-        # avoid overplotting: label segments of length >= 1 (or optionally fewer)
         if seg_len >= 1:
             ax.text((s + e - 1) / 2.0, label_y, label, ha="center", va="top", fontsize=7, rotation=0)
 
@@ -1041,11 +1072,10 @@ def plot_time_serie_with_images(
 
     # build legend for shaded regions if used
     legend_handles = []
-
     if high_list:
-        legend_handles.append(Patch(facecolor=high_color, alpha=0.25, label=f"High {calc_method} images"))
+        legend_handles.append(Patch(facecolor=high_color, alpha=0.25, label=f"High {emotion_type} images"))
     if low_list:
-        legend_handles.append(Patch(facecolor=low_color, alpha=0.25, label=f"Low {calc_method} images"))
+        legend_handles.append(Patch(facecolor=low_color, alpha=0.25, label=f"Low {emotion_type} images"))
     if legend_handles:
         ax.legend(handles=legend_handles, loc="upper right", fontsize=9)
 
@@ -1063,6 +1093,7 @@ def filter_and_alternate_images(
     df: pd.DataFrame,
     vda: dict,
     img_cat_map: dict,
+    seq: list,
     emot_type: str = "valence",
     start_with: str = "high",
 ):
@@ -1093,26 +1124,26 @@ def filter_and_alternate_images(
         return df.copy(), {k: (v.copy() if isinstance(v, pd.Series) else v) for k, v in vda.items()}, []
 
     # Interleave lists preserving internal order
-    seq = []
-    if start_with == "low":
-        a, b = low_present, high_present
-    else:
-        a, b = high_present, low_present
+    if seq == []:
+        if start_with == "low":
+            a, b = low_present, high_present
+        else:
+            a, b = high_present, low_present
 
-    for x, y in zip_longest(a, b):
-        if x is not None:
-            seq.append(x)
-        if y is not None:
-            seq.append(y)
+        for x, y in zip_longest(a, b):
+            if x is not None:
+                seq.append(x)
+            if y is not None:
+                seq.append(y)
 
-    # Remove potential duplicates while preserving order (rare)
-    seen = set()
-    seq_ordered = []
-    for s in seq:
-        if s not in seen:
-            seen.add(s)
-            seq_ordered.append(s)
-    seq = seq_ordered
+        # Remove potential duplicates while preserving order (rare)
+        seen = set()
+        seq_ordered = []
+        for s in seq:
+            if s not in seen:
+                seen.add(s)
+                seq_ordered.append(s)
+        seq = seq_ordered
 
     # Build ordered list of original row indices according to seq (preserve within-image order)
     ordered_idxs = []
@@ -1179,6 +1210,8 @@ def main():
 
     vda = {}
     vda_results = {}
+    va_seq = []
+    ar_seq = []
     for person in people:
         filename = rf"{input_dir}\{person}\pow.csv"
 
@@ -1221,31 +1254,34 @@ def main():
                 vda_df[key] = vda_df["img"].map(val)
 
         vda_results[person] = vda_df
-
-        va_df, va_vda, seq = filter_and_alternate_images(
+        va_df, va_vda, va_seq = filter_and_alternate_images(
             df_i,
             vda[person],
             oasis_categories,
+            va_seq,
             emot_type="valence",
         )
         plot_time_serie_with_images(
             va_vda,
             va_df,
+            va_seq,
             img_category_map=oasis_categories,
             output_dir=output_dir,
             calc_method="valence",
             emotion_type="valence",
             figsize=(16, 6),
         )
-        ar_df, ar_vda, seq = filter_and_alternate_images(
+        ar_df, ar_vda, ar_seq = filter_and_alternate_images(
             df_i,
             vda[person],
             oasis_categories,
+            ar_seq,
             emot_type="arousal",
         )
         plot_time_serie_with_images(
             ar_vda,
             ar_df,
+            ar_seq,
             img_category_map=oasis_categories,
             output_dir=output_dir,
             calc_method="arousal",
