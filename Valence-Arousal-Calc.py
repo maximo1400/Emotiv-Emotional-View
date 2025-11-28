@@ -9,6 +9,7 @@ import pickle
 import matplotlib.pyplot as plt
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from matplotlib.patches import Patch
+from itertools import zip_longest
 
 warnings.filterwarnings("ignore")
 
@@ -898,11 +899,9 @@ def apply_baseline_percent_change(
     return df
 
 
-def plot_valence_time_with_images(
+def plot_valence_with_images(
     vda: dict,
     df: pd.DataFrame,
-    high_val_list: list,
-    low_val_list: list,
     img_category_map: dict,
     val_method: str = "valence",
     save_plot: bool = True,
@@ -912,12 +911,10 @@ def plot_valence_time_with_images(
     """
     Plot the valence time series with image labels and background coloring for
     images in high_val_list (green) and low_val_list (red).
-    - vda: dict containing 'valence' (per-row) Series or array
-    - df: dataframe aligned with the valence time-series that has an 'img' column
-    - high_val_list / low_val_list: lists of image ids to highlight
-    - img_category_map: optional mapping img_id -> category (used in label)
-    """
 
+    """
+    high_val_list = img_category_map[f"high_{val_method}"]
+    low_val_list = img_category_map[f"low_{val_method}"]
     val_ser = vda[val_method]
     # ensure 1D numpy array for plotting and aligned image list
     y = pd.Series(val_ser).reset_index(drop=True).to_numpy()
@@ -937,13 +934,14 @@ def plot_valence_time_with_images(
     # find contiguous segments of the same image
     segments = []
     start = 0
-    cur_img = imgs[0]
+    cur_img = imgs[0] if imgs else ""
     for i in range(1, n):
         if imgs[i] != cur_img:
             segments.append((cur_img, start, i))  # end is exclusive
             start = i
             cur_img = imgs[i]
-    segments.append((cur_img, start, n))
+    if n > 0:
+        segments.append((cur_img, start, n))
 
     fig, ax = plt.subplots(figsize=figsize)
     ax.plot(x, y, color="tab:blue", linewidth=1.5, alpha=0.9)
@@ -952,12 +950,15 @@ def plot_valence_time_with_images(
     # shading and labels
     high_color = "lightgreen"
     low_color = "lightcoral"
-    other_color = None  # leave transparent for others
 
-    # precompute y placement for labels
-    y_min, y_max = np.min(y), np.max(y)
+    # compute y placement for labels (below the series)
+    y_min, y_max = np.min(y) if n > 0 else 0.0, np.max(y) if n > 0 else 0.0
     y_range = max(1e-6, y_max - y_min)
-    label_y = y_max + 0.04 * y_range
+    label_y = y_min - 0.06 * y_range  # put labels slightly below the minimum
+    # expand y limits to ensure labels are visible
+    ylim_min = y_min - 0.12 * y_range
+    ylim_max = y_max + 0.06 * y_range
+    ax.set_ylim(ylim_min, ylim_max)
 
     for img_id, s, e in segments:
         # choose color
@@ -976,10 +977,11 @@ def plot_valence_time_with_images(
             cat = img_category_map.get(img_id)
             if cat is not None:
                 label = f"{img_id}\n{cat}"
-        # avoid overplotting too many labels: only label segments longer than 1 or every Nth if many
+
         seg_len = e - s
+        # avoid overplotting: label segments of length >= 1 (or optionally fewer)
         if seg_len >= 1:
-            ax.text((s + e - 1) / 2.0, label_y, label, ha="center", va="bottom", fontsize=8, rotation=0)
+            ax.text((s + e - 1) / 2.0, label_y, label, ha="center", va="top", fontsize=7, rotation=0)
 
     # Decorations
     ax.set_xlabel("Time Points", fontweight="bold")
@@ -1005,6 +1007,111 @@ def plot_valence_time_with_images(
 
     plt.show()
     return
+
+
+def filter_and_alternate_images(
+    df: pd.DataFrame,
+    vda: dict,
+    img_cat_map: dict,
+    emot_type: str = "valence",
+    start_with: str = "high",
+):
+    """
+    Filter df and vda to only rows whose img is in high_val_list or low_val_list,
+    then reorder them so image blocks alternate between high and low lists
+    (preserving the original within-image row order). Returns (df_filtered, vda_filtered, seq)
+    where seq is the final image sequence used.
+    """
+    high_val_list = img_cat_map[f"high_{emot_type}"]
+    low_val_list = img_cat_map[f"low_{emot_type}"]
+
+    # Ensure lists are sets for quick membership
+    high_set = set(high_val_list or [])
+    low_set = set(low_val_list or [])
+    allowed = high_set | low_set
+
+    # Original indices (time order) and unique images in their first-appearance order
+    orig_idx = df.index.to_list()
+    unique_imgs = df.drop_duplicates("img", keep="first")["img"].astype(str).tolist()
+
+    # Keep only those images that are present in df and in the allowed sets
+    high_present = [img for img in unique_imgs if img in high_set]
+    low_present = [img for img in unique_imgs if img in low_set]
+
+    if not high_present and not low_present:
+        # Nothing to do: return copies
+        return df.copy(), {k: (v.copy() if isinstance(v, pd.Series) else v) for k, v in vda.items()}, []
+
+    # Interleave lists preserving internal order
+    seq = []
+    if start_with == "low":
+        a, b = low_present, high_present
+    else:
+        a, b = high_present, low_present
+
+    for x, y in zip_longest(a, b):
+        if x is not None:
+            seq.append(x)
+        if y is not None:
+            seq.append(y)
+
+    # Remove potential duplicates while preserving order (rare)
+    seen = set()
+    seq_ordered = []
+    for s in seq:
+        if s not in seen:
+            seen.add(s)
+            seq_ordered.append(s)
+    seq = seq_ordered
+
+    # Build ordered list of original row indices according to seq (preserve within-image order)
+    ordered_idxs = []
+    for img in seq:
+        rows = df.index[df["img"].astype(str) == str(img)].tolist()
+        ordered_idxs.extend(rows)
+
+    if not ordered_idxs:
+        return df.copy(), {k: (v.copy() if isinstance(v, pd.Series) else v) for k, v in vda.items()}, seq
+
+    # Create reordered df
+    df_new = df.loc[ordered_idxs].reset_index(drop=True)
+
+    # Reorder or expand vda entries to match df_new
+    vda_new = {}
+    orig_n = len(df)
+    for key, val in vda.items():
+        try:
+            # pandas Series handling
+            if isinstance(val, pd.Series):
+                val_pos = val.reset_index(drop=True)
+                if len(val_pos) == orig_n:
+                    arr = val_pos.iloc[ordered_idxs].reset_index(drop=True)
+                    vda_new[key] = arr
+                    continue
+                else:
+                    # per-image Series (index=img)
+                    imgs_in_new = df_new["img"].astype(str).tolist()
+                    mapped = [val.get(i, np.nan) for i in imgs_in_new]
+                    vda_new[key] = pd.Series(mapped)
+                    continue
+            # numpy / list per-row
+            arr_np = np.asarray(val)
+            if arr_np.size == orig_n:
+                vda_new[key] = pd.Series(arr_np[ordered_idxs]).reset_index(drop=True)
+            else:
+                # attempt per-image mapping using position-aligned assumption (fallback)
+                imgs_in_new = df_new["img"].astype(str).tolist()
+                try:
+                    # val might be dict-like
+                    mapped = [val[i] if i in val else np.nan for i in imgs_in_new]
+                except Exception:
+                    mapped = [np.nan] * len(imgs_in_new)
+                vda_new[key] = pd.Series(mapped)
+        except Exception:
+            # Safe fallback: drop or fill with NaN series of correct length
+            vda_new[key] = pd.Series([np.nan] * len(df_new))
+
+    return df_new, vda_new, seq
 
 
 def main():
@@ -1077,14 +1184,29 @@ def main():
 
     # plot_valence_arousal(vda_results, output_dir=output_dir)
     # plot_time_series(vda, output_dir=output_dir)
-    plot_valence_time_with_images(
-        vda,
+    # plot_valence_time_with_images(
+    #     vda,
+    #     df_i,
+    #     high_val_list=oasis_categories["high_valence"],
+    #     low_val_list=oasis_categories["low_valence"],
+    #     img_category_map=oasis_categories,
+    #     output_dir=output_dir,
+    #     val_method="valence",
+    # )
+    new_df, new_vda, seq = filter_and_alternate_images(
         df_i,
-        high_val_list=oasis_categories["high_valence"],
-        low_val_list=oasis_categories["low_valence"],
+        vda,
+        oasis_categories,
+        emot_type="valence",
+        start_with="high",
+    )
+    plot_valence_with_images(
+        new_vda,
+        new_df,
         img_category_map=oasis_categories,
         output_dir=output_dir,
         val_method="valence",
+        figsize=(16, 6),
     )
     # plot_valence_arousal_methods(vda_results, bin_size=20, output_dir=output_dir)
 
