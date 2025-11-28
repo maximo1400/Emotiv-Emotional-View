@@ -1195,6 +1195,218 @@ def filter_and_alternate_images(
     return df_new, vda_new, seq
 
 
+def init_shared_plot(
+    img_seq: list,
+    img_category_map: dict,
+    calc_method: str = "arousal",
+    emotion_type: str = "arousal",
+    figsize=(14, 6),
+    output_dir: str = output_dir,
+    cmap: str = "tab20",
+    show_images: bool = False,
+):
+    """
+    Initialize a shared figure/axis for plotting multiple people's time series.
+    Returns a dict `shared` holding fig, ax, color cycle and config.
+    """
+    fig, ax = plt.subplots(figsize=figsize)
+    cmap_obj = plt.get_cmap(cmap)
+    colors = list(cmap_obj.colors) if hasattr(cmap_obj, "colors") else [cmap_obj(i) for i in range(20)]
+    high_list = set(img_category_map.get(f"high_{emotion_type}", []) or [])
+    low_list = set(img_category_map.get(f"low_{emotion_type}", []) or [])
+    shared = {
+        "fig": fig,
+        "ax": ax,
+        "colors": colors,
+        "color_idx": 0,
+        "calc_method": calc_method,
+        "emotion_type": emotion_type,
+        "output_dir": output_dir,
+        "show_images": show_images,
+        "legend_handles": [],
+        "labels": [],
+        "img_seq": img_seq,
+        "high_list": high_list,
+        "low_list": low_list,
+    }
+    # axis labels / title left to finalize_shared_plot, but set basic labels
+    if emotion_type == "arousal":
+        ax.set_ylabel("Arousal (Low ← → High)", fontweight="bold")
+        ax.set_title(f"Combined Arousal ({calc_method}) Across People", fontweight="bold")
+    else:
+        ax.set_ylabel("Valence (Negative ← → Positive)", fontweight="bold")
+        ax.set_title(f"Combined Valence ({calc_method}) Across People", fontweight="bold")
+    ax.grid(True, alpha=0.3)
+    return shared
+
+
+def add_person_to_shared_plot(
+    person_name: str,
+    df: pd.DataFrame,
+    vda_person: dict,
+    shared: dict,
+    connect_segments: bool = False,
+    line_style: str = "-",
+    linewidth: float = 1.5,
+    alpha: float = 0.9,
+):
+    """
+    Add one person's time series to a shared plot.
+    df: dataframe for that person (must contain 'img' column)
+    vda_person: dict of series/arrays for that person (must contain calc_method used in shared)
+    """
+    ax = shared["ax"]
+    calc_method = shared["calc_method"]
+
+    # grab raw series (can be pd.Series, list or numpy)
+    serie_raw = vda_person.get(calc_method)
+    if serie_raw is None:
+        print(f"Warning: {calc_method} not found for {person_name}; skipping.")
+        return
+
+    # Build ordered indices to make same ordering as plot_time_serie_with_images when img_seq supplied
+    ordered_idxs = []
+    img_seq = shared["img_seq"]
+    if img_seq:
+        seen = set()
+        for img in img_seq:
+            matches = df.index[df["img"].astype(str) == str(img)].tolist()
+            for idx in matches:
+                if idx not in seen:
+                    ordered_idxs.append(idx)
+                    seen.add(idx)
+        for idx in df.index.tolist():
+            if idx not in seen:
+                ordered_idxs.append(idx)
+                seen.add(idx)
+    else:
+        ordered_idxs = df.index.tolist()
+
+    if not ordered_idxs:
+        print(f"No data for {person_name}")
+        return
+
+    # Align y values to ordered_idxs
+    # If serie_raw is a pandas Series with length == len(df), use positional reindexing
+    try:
+        if isinstance(serie_raw, pd.Series) and len(serie_raw) == len(df):
+            y_series = serie_raw.reset_index(drop=True).iloc[ordered_idxs].reset_index(drop=True)
+        else:
+            # attempt to coerce to numpy and pick by ordered_idxs; if shorter assume per-image mapping
+            arr = np.asarray(serie_raw)
+            if arr.size == len(df):
+                y_series = pd.Series(arr[ordered_idxs]).reset_index(drop=True)
+            else:
+                # fallback: map per-image (value per image) to rows in df via img column
+                img_vals = []
+                ser_map = serie_raw if isinstance(serie_raw, (dict, pd.Series)) else {}
+                imgs_in_new = df.loc[ordered_idxs, "img"].astype(str).tolist()
+                for img in imgs_in_new:
+                    img_vals.append(ser_map.get(img, np.nan))
+                y_series = pd.Series(img_vals)
+    except Exception:
+        # safest fallback: NaNs
+        y_series = pd.Series([np.nan] * len(ordered_idxs))
+
+    y = y_series.to_numpy()
+    n = len(y)
+    x = np.arange(n)
+    imgs = df.loc[ordered_idxs, "img"].reset_index(drop=True).astype(str).tolist()
+
+    # choose color
+    colors = shared["colors"]
+    ci = shared["color_idx"] % len(colors)
+    color = colors[ci]
+    shared["color_idx"] += 1
+
+    # Plot as continuous or segmented (to reflect image blocks)
+    if connect_segments:
+        (line,) = ax.plot(x, y, color=color, linestyle=line_style, linewidth=linewidth, alpha=alpha, label=person_name)
+    else:
+        # find contiguous segments of same image to create visible gaps
+        segments = []
+        start = 0
+        cur_img = imgs[0] if imgs else ""
+        for i in range(1, n):
+            if imgs[i] != cur_img:
+                segments.append((start, i))
+                start = i
+                cur_img = imgs[i]
+        if n > 0:
+            segments.append((start, n))
+        # plot segments separately
+        line = None
+        for s, e in segments:
+            seg_x = np.arange(s, e)
+            seg_y = y[s:e]
+            if len(seg_x) == 1:
+                (lobj,) = ax.plot(seg_x, seg_y, marker="o", color=color, markersize=4, linestyle="None", alpha=alpha)
+                if line is None:
+                    line = lobj
+            else:
+                (lobj,) = ax.plot(seg_x, seg_y, color=color, linestyle=line_style, linewidth=linewidth, alpha=alpha)
+                if line is None:
+                    line = lobj
+
+    # store handle and label for legend
+    if line is not None:
+        shared["legend_handles"].append(line)
+        shared["labels"].append(person_name)
+
+    return
+
+
+def finalize_shared_plot(
+    shared: dict,
+    save_plot: bool = True,
+    filename: str = "combined_vda_plot.png",
+    bbox_inches="tight",
+    dpi=300,
+    show: bool = True,
+):
+    """
+    Finalize the shared plot: add legend, axis labels, save and show.
+    """
+    fig = shared["fig"]
+    ax = shared["ax"]
+
+    # center axes around zero if desired (use current data extents)
+    try:
+        all_lines = shared.get("legend_handles", [])
+        # compute extents from plotted lines
+        xs, ys = [], []
+        for line in ax.get_lines():
+            xd = line.get_xdata()
+            yd = line.get_ydata()
+            if len(xd) and len(yd):
+                xs.extend(xd)
+                ys.extend(yd[np.isfinite(yd)])
+        if ys:
+            y_min, y_max = np.min(ys), np.max(ys)
+            y_range = max(1e-6, y_max - y_min)
+            ax.set_ylim(y_min - 0.12 * y_range, y_max + 0.06 * y_range)
+    except Exception:
+        pass
+
+    ax.set_xlabel("Time Points", fontweight="bold")
+
+    if shared["labels"]:
+        ax.legend(
+            handles=shared["legend_handles"], labels=shared["labels"], loc="upper right", fontsize=9, framealpha=0.9
+        )
+
+    plt.tight_layout()
+    if save_plot:
+        os.makedirs(shared["output_dir"], exist_ok=True)
+        outpath = os.path.join(shared["output_dir"], filename)
+        fig.savefig(outpath, dpi=dpi, bbox_inches=bbox_inches)
+        print(f"Combined plot saved to {outpath}")
+    if show:
+        plt.show()
+    plt.close(fig)
+    return
+
+
 def main():
     """Main function to process EEG data"""
     # Populate `people` with folder names found in sub_data
@@ -1212,6 +1424,12 @@ def main():
     vda_results = {}
     va_seq = []
     ar_seq = []
+
+    va_df = {}
+    ar_df = {}
+    va_vda = {}
+    ar_vda = {}
+
     for person in people:
         filename = rf"{input_dir}\{person}\pow.csv"
 
@@ -1252,42 +1470,46 @@ def main():
             else:
                 # per-image aggregated series (index = img) -> map to each row by img id
                 vda_df[key] = vda_df["img"].map(val)
-
         vda_results[person] = vda_df
-        va_df, va_vda, va_seq = filter_and_alternate_images(
+
+        va_df[person], va_vda[person], va_seq = filter_and_alternate_images(
             df_i,
             vda[person],
             oasis_categories,
             va_seq,
             emot_type="valence",
         )
-        plot_time_serie_with_images(
-            va_vda,
-            va_df,
-            va_seq,
-            img_category_map=oasis_categories,
-            output_dir=output_dir,
-            calc_method="valence",
-            emotion_type="valence",
-            figsize=(16, 6),
-        )
-        ar_df, ar_vda, ar_seq = filter_and_alternate_images(
+
+        ar_df[person], ar_vda[person], ar_seq = filter_and_alternate_images(
             df_i,
             vda[person],
             oasis_categories,
             ar_seq,
             emot_type="arousal",
         )
-        plot_time_serie_with_images(
-            ar_vda,
-            ar_df,
-            ar_seq,
-            img_category_map=oasis_categories,
-            output_dir=output_dir,
-            calc_method="arousal",
-            emotion_type="arousal",
-            figsize=(16, 6),
+
+    shared_plot_valence = init_shared_plot(
+        img_seq=va_seq,
+        img_category_map=oasis_categories,
+        calc_method="valence",
+        emotion_type="valence",
+        output_dir=output_dir,
+    )
+
+    for person in people:
+        add_person_to_shared_plot(
+            person,
+            va_df[person],
+            va_vda[person],
+            shared_plot_valence,
+            connect_segments=False,
         )
+
+    finalize_shared_plot(
+        shared_plot_valence,
+        filename="combined_valence_plot.png",
+    )
+
     # plot_valence_arousal_methods(vda_results, bin_size=20, output_dir=output_dir)
 
     # Combine all VDA results into a single DataFrame for saving
