@@ -43,6 +43,8 @@ EEG_CONFIG = {
         "F8/theta",  "F8/alpha",  "F8/betaL",  "F8/betaH",  "F8/gamma",
         "AF4/theta", "AF4/alpha", "AF4/betaL", "AF4/betaH", "AF4/gamma"],
     "time_s": 10,  # Duration each image is shown in seconds plus rest periods
+    "sampling_rate": 8,  # Hz
+    "target_samples_per_image": 80,  # Target samples per image for balancing
 }
 
 img_info_path = "OASIS_database_2016/all_info.pkl"
@@ -78,41 +80,63 @@ def load_image_info(pickle_path: str = img_info_path) -> pd.DataFrame:
     return all_info
 
 
-def clean_slice_df(df: pd.DataFrame, time_s: int = EEG_CONFIG["time_s"]) -> pd.DataFrame:
-    """Clean the DataFrame by removing rows with NaN or infinite values and balance image groups."""
+def clean_slice_df(df: pd.DataFrame, eeg_config: dict = EEG_CONFIG) -> pd.DataFrame:
+    """Clean the DataFrame by removing rows with NaN or infinite values and balance image groups.
+
+    Behaviour:
+    - Target a fixed per-image sample count (from EEG_CONFIG).
+    - For images with >= TARGET_SAMPLES use the last TARGET_SAMPLES rows.
+    - For images with fewer than TARGET_SAMPLES keep whatever rows are available.
+    - R2 is treated as a fixed-size segment (nominal_R2_len) whenever possible;
+      when samples are insufficient, R1 is reduced first (I is preserved if possible).
+    """
+    time_s = eeg_config["time_s"]
+    target_samples = eeg_config["target_samples_per_image"]
     df = df.replace([np.inf, -np.inf], np.nan)
     df = df.dropna().reset_index(drop=True)
 
     # compute per-image counts once
-    counts = df.groupby("img").size()
-    min_count = int(counts.min())
+    # min_samples = df.groupby("img").size().min()
+    # print(f"Actual min samples available: {min_samples}.")
 
-    # take the last `min_count` rows per group
-    balanced = df.groupby("img", group_keys=False).apply(lambda g: g.tail(min_count))
-
+    balanced = df.copy().reset_index(drop=False)  # keep original index in 'index' column for safe loc
     balanced["slice"] = pd.NA
-    # I1 = min_count * 1 // time_s
-    # I2 = min_count * 4 // time_s
-    # I3 = min_count * 6 // time_s
-    # R1 = min_count * 8 // time_s
-    # R2 = min_count
-    # for img in balanced["img"].unique():
-    #     indices = balanced[balanced["img"] == img].index
-    #     balanced.loc[indices[:I1], "slice"] = "I1"
-    #     balanced.loc[indices[I1:I2], "slice"] = "I2"
-    #     balanced.loc[indices[I2:I3], "slice"] = "I3"
-    #     balanced.loc[indices[I3:R1], "slice"] = "R1"
-    #     balanced.loc[indices[R1:R2], "slice"] = "R2"
-    I = min_count * 6 // time_s
-    R1 = min_count * 8 // time_s
-    R2 = min_count
-    for img in balanced["img"].unique():
-        indices = balanced[balanced["img"] == img].index
-        balanced.loc[indices[:I], "slice"] = "I"
-        balanced.loc[indices[I:R1], "slice"] = "R1"
-        balanced.loc[indices[R1:R2], "slice"] = "R2"
 
-    return balanced.reset_index(drop=True)
+    # nominal slice sizes based on target_samples and time proportions
+    nominal_I = int(round(target_samples * 6.0 / time_s))  # preserve primary image period
+    nominal_R1 = int(round(target_samples * 8.0 / time_s))  # end of R1 at 8s
+    nominal_R2_len = max(0, target_samples - nominal_R1)  # R2 nominally covers last (10-8)=2s
+
+    for img in balanced["img"].unique():
+        rows = balanced[balanced["img"] == img]
+        orig_indices = rows["index"].tolist()  # original df indices for these rows
+        n = len(orig_indices)
+
+        selected_idx = orig_indices.copy()
+
+        # allocate slices within selected_idx
+        I = nominal_I
+        R2 = nominal_R2_len
+        R1_len = target_samples - I - R2
+        # indices relative to selected_idx
+        I_idx = selected_idx[:I]
+        R1_idx = selected_idx[I : I + R1_len]
+        R2_idx = selected_idx[-R2:]
+
+        # assign slices
+        balanced.loc[balanced["index"].isin(I_idx), "slice"] = "I"
+        balanced.loc[balanced["index"].isin(R1_idx), "slice"] = "R1"
+        balanced.loc[balanced["index"].isin(R2_idx), "slice"] = "R2"
+
+        # remove rows of the current image that did not receive a slice assignment (mostly around end of R1)
+        mask_unassigned = (balanced["img"] == img) & balanced["slice"].isna()
+        if mask_unassigned.any():
+            balanced = balanced.loc[~mask_unassigned].reset_index(drop=True)
+
+    # drop helper 'index' column and return contiguous frame
+    balanced = balanced.drop(columns=["index"]).reset_index(drop=True)
+    # balanced.to_csv(f"{output_dir}/cleaned_balanced_eeg_data.csv", index=False)
+    return balanced
 
 
 def calculate_asymetryies(
@@ -1153,106 +1177,90 @@ def main():
         shutil.rmtree(output_dir)  # remove existing directory if it exists
     os.mkdir(output_dir)
 
-    # for person in people:
-    person = people[0]
-    filename = rf"{input_dir}\{person}\pow.csv"
+    vda = {}
+    vda_results = {}
+    for person in people:
+        filename = rf"{input_dir}\{person}\pow.csv"
 
-    # Load data
-    print(f"Loading EEG data from {person}")
-    df = load_eeg_data(filename)
-    df = clean_slice_df(df)
-    # df.to_csv("data.csv", index=False)
-    # return
+        # Load data
+        print(f"Loading EEG data from {person}")
+        df = load_eeg_data(filename)
+        df = clean_slice_df(df)
 
-    # TODO: nicer normailzation
-    # base_prev = compute_prev_R2_baseline(df)
-    # df = apply_baseline_percent_change(df, base_prev_r2=base_prev)
+        # TODO: nicer normailzation
+        # base_prev = compute_prev_R2_baseline(df)
+        # df = apply_baseline_percent_change(df, base_prev_r2=base_prev)
 
-    df = drop_first_image(df)
-    print(f"Data loaded successfully. Shape: {df.shape}")
+        df = drop_first_image(df)
+        print(f"Data loaded successfully. Shape: {df.shape}")
 
-    # filter rest periods and first 3 seconds (Only keep I2)
-    # df_i2 = df[df["slice"] == "I2"].reset_index(drop=True)
-    df_i = df[df["slice"] == "I"].reset_index(drop=True)
-    # df_i2 = df.copy()
+        # Keep only image presentation periods (slice "I")
+        df_i = df[df["slice"] == "I"].reset_index(drop=True)
 
-    # Calculate valence, dominance, and arousal
-    print("\nCalculating valence, dominance, and arousal...")
-    asym = calculate_asymetryies(df_i, df)
-    va = calculate_valence(df_i, asym)
-    ar = calculate_arousal(df_i, asym)
-    dom = calculate_dominance(df_i, asym)
+        # Calculate valence, dominance, and arousal
+        print("\nCalculating valence, dominance, and arousal...")
+        asym = calculate_asymetryies(df_i, df)
+        va = calculate_valence(df_i, asym)
+        ar = calculate_arousal(df_i, asym)
+        dom = calculate_dominance(df_i, asym)
+        vda[person] = va | ar | dom
 
-    # Save results to CSV
-    print("\nSaving results...")
+        # Prepare VDA results for saving
+        # Build a time-ordered DataFrame (one row per sample in df_i) and
+        # expand any per-image summaries to per-row via the 'img' column.
+        vda_df = pd.DataFrame()
+        vda_df["img"] = df_i["img"].reset_index(drop=True)
+        n_rows = len(vda_df)
 
-    vda = va | ar | dom
-    # for key, val in vda.items():
-    #     print(all(vda2[key] == vda[key]))
+        for key, val in vda.items():
+            # Series (per-row) already aligned to time order -> reset_index to keep order
+            if len(val) == n_rows:
+                vda_df[key] = val.reset_index(drop=True)
+            else:
+                # per-image aggregated series (index = img) -> map to each row by img id
+                vda_df[key] = vda_df["img"].map(val)
 
-    # Prepare VDA results for saving
-    # Build a time-ordered DataFrame (one row per sample in df_i) and
-    # expand any per-image summaries to per-row via the 'img' column.
-    vda_df = pd.DataFrame()
-    vda_df["img"] = df_i["img"].reset_index(drop=True)
-    n_rows = len(vda_df)
+        vda_results[person] = vda_df
 
-    for key, val in vda.items():
-        # Series (per-row) already aligned to time order -> reset_index to keep order
-        if len(val) == n_rows:
-            vda_df[key] = val.reset_index(drop=True)
-        else:
-            # per-image aggregated series (index = img) -> map to each row by img id
-            vda_df[key] = vda_df["img"].map(val)
-
-    vda_df.to_csv(f"{output_dir}/VDA_results.csv", index=False)
-    print(f"VDA results saved to '{output_dir}/VDA_results.csv'")
-
-    # plot_valence_arousal(vda_results, output_dir=output_dir)
-    # plot_time_series(vda, output_dir=output_dir)
-    # plot_valence_time_with_images(
-    #     vda,
-    #     df_i,
-    #     high_val_list=oasis_categories["high_valence"],
-    #     low_val_list=oasis_categories["low_valence"],
-    #     img_category_map=oasis_categories,
-    #     output_dir=output_dir,
-    #     val_method="valence",
-    # )
-    va_df, va_vda, seq = filter_and_alternate_images(
-        df_i,
-        vda,
-        oasis_categories,
-        emot_type="valence",
-        start_with="high",
-    )
-    plot_time_serie_with_images(
-        va_vda,
-        va_df,
-        img_category_map=oasis_categories,
-        output_dir=output_dir,
-        calc_method="valence",
-        emotion_type="valence",
-        figsize=(16, 6),
-    )
-    ar_df, ar_vda, seq = filter_and_alternate_images(
-        df_i,
-        vda,
-        oasis_categories,
-        emot_type="arousal",
-        start_with="high",
-    )
-    plot_time_serie_with_images(
-        ar_vda,
-        ar_df,
-        img_category_map=oasis_categories,
-        output_dir=output_dir,
-        calc_method="arousal",
-        emotion_type="arousal",
-        figsize=(16, 6),
-    )
+        va_df, va_vda, seq = filter_and_alternate_images(
+            df_i,
+            vda[person],
+            oasis_categories,
+            emot_type="valence",
+        )
+        plot_time_serie_with_images(
+            va_vda,
+            va_df,
+            img_category_map=oasis_categories,
+            output_dir=output_dir,
+            calc_method="valence",
+            emotion_type="valence",
+            figsize=(16, 6),
+        )
+        ar_df, ar_vda, seq = filter_and_alternate_images(
+            df_i,
+            vda[person],
+            oasis_categories,
+            emot_type="arousal",
+        )
+        plot_time_serie_with_images(
+            ar_vda,
+            ar_df,
+            img_category_map=oasis_categories,
+            output_dir=output_dir,
+            calc_method="arousal",
+            emotion_type="arousal",
+            figsize=(16, 6),
+        )
     # plot_valence_arousal_methods(vda_results, bin_size=20, output_dir=output_dir)
 
+    # Combine all VDA results into a single DataFrame for saving
+    vda_df = pd.DataFrame()
+    for person, res_df in vda_results.items():
+        res_df = res_df.copy()
+        res_df["person"] = person
+        vda_df = pd.concat([vda_df, res_df], ignore_index=True)
+    vda_df.to_csv(f"{output_dir}/VDA_results.csv", index=False)
     return
 
 
