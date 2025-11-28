@@ -899,34 +899,40 @@ def apply_baseline_percent_change(
     return df
 
 
-def plot_valence_with_images(
+def plot_time_serie_with_images(
     vda: dict,
     df: pd.DataFrame,
     img_category_map: dict,
-    val_method: str = "valence",
+    calc_method: str = "arousal_norm",
+    emotion_type: str = "arousal",
     save_plot: bool = True,
     output_dir: str = output_dir,
     figsize=(14, 6),
+    connect_segments: bool = False,
+    line_color: str = "tab:blue",
 ):
     """
-    Plot the valence time series with image labels and background coloring for
+    Plot the valence/arousal time series with image labels and background coloring for
     images in high_val_list (green) and low_val_list (red).
 
+    Parameters:
+    - connect_segments: if False, the line will not be connected between different image segments
+      (gaps will appear between segments). If True (default), the series is plotted as a continuous line.
     """
-    high_val_list = img_category_map[f"high_{val_method}"]
-    low_val_list = img_category_map[f"low_{val_method}"]
-    val_ser = vda[val_method]
+    high_list = img_category_map[f"high_{emotion_type}"]
+    low_list = img_category_map[f"low_{emotion_type}"]
+    serie = vda[calc_method]
     # ensure 1D numpy array for plotting and aligned image list
-    y = pd.Series(val_ser).reset_index(drop=True).to_numpy()
+    y = pd.Series(serie).reset_index(drop=True).to_numpy()
     n = len(y)
     x = np.arange(n)
 
     imgs = df["img"].reset_index(drop=True).astype(str).to_list()
     if len(imgs) != n:
-        # fallback: try to use the valence index if it encodes images
-        print("Warning: df img length does not match valence length. Using valence index for images.")
+        # fallback: try to use the valence/arousal index if it encodes images
+        print("Warning: df img length does not match valence/arousal length. Using valence/arousal index for images.")
         try:
-            imgs = pd.Series(val_ser).index.to_list()
+            imgs = pd.Series(serie).index.to_list()
             imgs = [str(i) for i in imgs]
         except Exception:
             imgs = [""] * n
@@ -944,8 +950,24 @@ def plot_valence_with_images(
         segments.append((cur_img, start, n))
 
     fig, ax = plt.subplots(figsize=figsize)
-    ax.plot(x, y, color="tab:blue", linewidth=1.5, alpha=0.9)
-    ax.axhline(y=np.mean(y), color="black", linestyle="--", alpha=0.6, linewidth=1)
+
+    # Plot either as one continuous line or as separate segment lines
+    if connect_segments:
+        ax.plot(x, y, color=line_color, linewidth=1.5, alpha=0.9)
+    else:
+        # plot each segment separately so there is a gap between segments
+        for img_id, s, e in segments:
+            if e - s <= 0:
+                continue
+            seg_x = np.arange(s, e)
+            seg_y = y[s:e]
+            if len(seg_x) == 1:
+                # single point: draw a marker
+                ax.plot(seg_x, seg_y, marker="o", color=line_color, markersize=4, alpha=0.9, linestyle="None")
+            else:
+                ax.plot(seg_x, seg_y, color=line_color, linewidth=1.5, alpha=0.9)
+
+    ax.axhline(y=np.mean(y) if n > 0 else 0.0, color="black", linestyle="--", alpha=0.6, linewidth=1)
 
     # shading and labels
     high_color = "lightgreen"
@@ -963,9 +985,9 @@ def plot_valence_with_images(
     for img_id, s, e in segments:
         # choose color
         col = None
-        if img_id in high_val_list:
+        if img_id in high_list:
             col = high_color
-        elif img_id in low_val_list:
+        elif img_id in low_list:
             col = low_color
 
         if col:
@@ -985,25 +1007,29 @@ def plot_valence_with_images(
 
     # Decorations
     ax.set_xlabel("Time Points", fontweight="bold")
-    ax.set_ylabel("Valence (Negative ← → Positive)", fontweight="bold")
-    ax.set_title("Valence Over Time (Images annotated & highlighted)", fontweight="bold")
+    if emotion_type == "arousal":
+        ax.set_ylabel("Arousal (Low ← → High)", fontweight="bold")
+        ax.set_title(f"Arousal ({calc_method}) Over Time (Images annotated & highlighted)", fontweight="bold")
+    else:
+        ax.set_ylabel("Valence (Negative ← → Positive)", fontweight="bold")
+        ax.set_title(f"Valence ({calc_method}) Over Time (Images annotated & highlighted)", fontweight="bold")
     ax.grid(True, alpha=0.3)
 
     # build legend for shaded regions if used
     legend_handles = []
 
-    if high_val_list:
-        legend_handles.append(Patch(facecolor=high_color, alpha=0.25, label="High val images"))
-    if low_val_list:
-        legend_handles.append(Patch(facecolor=low_color, alpha=0.25, label="Low val images"))
+    if high_list:
+        legend_handles.append(Patch(facecolor=high_color, alpha=0.25, label=f"High {calc_method} images"))
+    if low_list:
+        legend_handles.append(Patch(facecolor=low_color, alpha=0.25, label=f"Low {calc_method} images"))
     if legend_handles:
         ax.legend(handles=legend_handles, loc="upper right", fontsize=9)
 
     plt.tight_layout()
     if save_plot:
         os.makedirs(output_dir, exist_ok=True)
-        plt.savefig(f"{output_dir}/valence_time_with_images.png", dpi=300, bbox_inches="tight")
-        print(f"Plot saved to {output_dir}/valence_time_with_images.png")
+        plt.savefig(f"{output_dir}/{calc_method}_time_with_images.png", dpi=300, bbox_inches="tight")
+        print(f"Plot saved to {output_dir}/{calc_method}_time_with_images.png")
 
     plt.show()
     return
@@ -1193,19 +1219,36 @@ def main():
     #     output_dir=output_dir,
     #     val_method="valence",
     # )
-    new_df, new_vda, seq = filter_and_alternate_images(
+    va_df, va_vda, seq = filter_and_alternate_images(
         df_i,
         vda,
         oasis_categories,
         emot_type="valence",
         start_with="high",
     )
-    plot_valence_with_images(
-        new_vda,
-        new_df,
+    plot_time_serie_with_images(
+        va_vda,
+        va_df,
         img_category_map=oasis_categories,
         output_dir=output_dir,
-        val_method="valence",
+        calc_method="valence",
+        emotion_type="valence",
+        figsize=(16, 6),
+    )
+    ar_df, ar_vda, seq = filter_and_alternate_images(
+        df_i,
+        vda,
+        oasis_categories,
+        emot_type="arousal",
+        start_with="high",
+    )
+    plot_time_serie_with_images(
+        ar_vda,
+        ar_df,
+        img_category_map=oasis_categories,
+        output_dir=output_dir,
+        calc_method="arousal",
+        emotion_type="arousal",
         figsize=(16, 6),
     )
     # plot_valence_arousal_methods(vda_results, bin_size=20, output_dir=output_dir)
