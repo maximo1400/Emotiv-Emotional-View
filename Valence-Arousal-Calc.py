@@ -6,6 +6,9 @@ import seaborn as sns
 import warnings
 import os, shutil
 import pickle
+import matplotlib.pyplot as plt
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+from matplotlib.patches import Patch
 
 warnings.filterwarnings("ignore")
 
@@ -895,6 +898,115 @@ def apply_baseline_percent_change(
     return df
 
 
+def plot_valence_time_with_images(
+    vda: dict,
+    df: pd.DataFrame,
+    high_val_list: list,
+    low_val_list: list,
+    img_category_map: dict,
+    val_method: str = "valence",
+    save_plot: bool = True,
+    output_dir: str = output_dir,
+    figsize=(14, 6),
+):
+    """
+    Plot the valence time series with image labels and background coloring for
+    images in high_val_list (green) and low_val_list (red).
+    - vda: dict containing 'valence' (per-row) Series or array
+    - df: dataframe aligned with the valence time-series that has an 'img' column
+    - high_val_list / low_val_list: lists of image ids to highlight
+    - img_category_map: optional mapping img_id -> category (used in label)
+    """
+
+    val_ser = vda[val_method]
+    # ensure 1D numpy array for plotting and aligned image list
+    y = pd.Series(val_ser).reset_index(drop=True).to_numpy()
+    n = len(y)
+    x = np.arange(n)
+
+    imgs = df["img"].reset_index(drop=True).astype(str).to_list()
+    if len(imgs) != n:
+        # fallback: try to use the valence index if it encodes images
+        print("Warning: df img length does not match valence length. Using valence index for images.")
+        try:
+            imgs = pd.Series(val_ser).index.to_list()
+            imgs = [str(i) for i in imgs]
+        except Exception:
+            imgs = [""] * n
+
+    # find contiguous segments of the same image
+    segments = []
+    start = 0
+    cur_img = imgs[0]
+    for i in range(1, n):
+        if imgs[i] != cur_img:
+            segments.append((cur_img, start, i))  # end is exclusive
+            start = i
+            cur_img = imgs[i]
+    segments.append((cur_img, start, n))
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.plot(x, y, color="tab:blue", linewidth=1.5, alpha=0.9)
+    ax.axhline(y=np.mean(y), color="black", linestyle="--", alpha=0.6, linewidth=1)
+
+    # shading and labels
+    high_color = "lightgreen"
+    low_color = "lightcoral"
+    other_color = None  # leave transparent for others
+
+    # precompute y placement for labels
+    y_min, y_max = np.min(y), np.max(y)
+    y_range = max(1e-6, y_max - y_min)
+    label_y = y_max + 0.04 * y_range
+
+    for img_id, s, e in segments:
+        # choose color
+        col = None
+        if img_id in high_val_list:
+            col = high_color
+        elif img_id in low_val_list:
+            col = low_color
+
+        if col:
+            ax.axvspan(s - 0.5, e - 0.5, facecolor=col, alpha=0.25, edgecolor=None)
+
+        # label in the center of the segment: show img id and optionally category
+        label = img_id
+        if img_category_map and isinstance(img_category_map, dict):
+            cat = img_category_map.get(img_id)
+            if cat is not None:
+                label = f"{img_id}\n{cat}"
+        # avoid overplotting too many labels: only label segments longer than 1 or every Nth if many
+        seg_len = e - s
+        if seg_len >= 1:
+            ax.text((s + e - 1) / 2.0, label_y, label, ha="center", va="bottom", fontsize=8, rotation=0)
+
+    # Decorations
+    ax.set_xlabel("Time Points", fontweight="bold")
+    ax.set_ylabel("Valence (Negative ← → Positive)", fontweight="bold")
+    ax.set_title("Valence Over Time (Images annotated & highlighted)", fontweight="bold")
+    ax.grid(True, alpha=0.3)
+
+    # build legend for shaded regions if used
+    legend_handles = []
+
+    if high_val_list:
+        legend_handles.append(Patch(facecolor=high_color, alpha=0.25, label="High val images"))
+    if low_val_list:
+        legend_handles.append(Patch(facecolor=low_color, alpha=0.25, label="Low val images"))
+    if legend_handles:
+        ax.legend(handles=legend_handles, loc="upper right", fontsize=9)
+
+    plt.tight_layout()
+    if save_plot:
+        os.makedirs(output_dir, exist_ok=True)
+        plt.savefig(f"{output_dir}/valence_time_with_images.png", dpi=300, bbox_inches="tight")
+        print(f"Plot saved to {output_dir}/valence_time_with_images.png")
+
+    plt.show()
+    return
+
+
 def main():
     """Main function to process EEG data"""
     # Populate `people` with folder names found in sub_data
@@ -946,16 +1058,34 @@ def main():
     #     print(all(vda2[key] == vda[key]))
 
     # Prepare VDA results for saving
-    vda_df_data = {}
-    for key, values in vda.items():
-        vda_df_data[key] = values
+    # Build a time-ordered DataFrame (one row per sample in df_i) and
+    # expand any per-image summaries to per-row via the 'img' column.
+    vda_df = pd.DataFrame()
+    vda_df["img"] = df_i["img"].reset_index(drop=True)
+    n_rows = len(vda_df)
 
-    vda_df = pd.DataFrame(vda_df_data)
-    # vda_df.to_csv(f"{output_dir}/VDA_results.csv", index=False)
+    for key, val in vda.items():
+        # Series (per-row) already aligned to time order -> reset_index to keep order
+        if len(val) == n_rows:
+            vda_df[key] = val.reset_index(drop=True)
+        else:
+            # per-image aggregated series (index = img) -> map to each row by img id
+            vda_df[key] = vda_df["img"].map(val)
+
+    vda_df.to_csv(f"{output_dir}/VDA_results.csv", index=False)
     print(f"VDA results saved to '{output_dir}/VDA_results.csv'")
 
     # plot_valence_arousal(vda_results, output_dir=output_dir)
-    plot_time_series(vda, output_dir=output_dir)
+    # plot_time_series(vda, output_dir=output_dir)
+    plot_valence_time_with_images(
+        vda,
+        df_i,
+        high_val_list=oasis_categories["high_valence"],
+        low_val_list=oasis_categories["low_valence"],
+        img_category_map=oasis_categories,
+        output_dir=output_dir,
+        val_method="valence",
+    )
     # plot_valence_arousal_methods(vda_results, bin_size=20, output_dir=output_dir)
 
     return
