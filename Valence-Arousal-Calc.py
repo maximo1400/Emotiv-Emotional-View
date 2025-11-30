@@ -1199,6 +1199,7 @@ def filter_and_alternate_images(
 def init_shared_plot(
     img_seq: list,
     img_category_map: dict,
+    gender_arr: list = None,
     calc_method: str = "arousal",
     emotion_type: str = "arousal",
     figsize=(18, 6),
@@ -1239,6 +1240,7 @@ def init_shared_plot(
         "low_list": low_list,
         "all_y_values": [],
         "mode": mode,
+        "gender_arr": gender_arr,
     }
     # axis labels / title left to finalize_shared_plot, but set basic labels
     if emotion_type == "arousal":
@@ -1636,7 +1638,7 @@ def main():
     # Populate `people` with folder names found in sub_data
     people = [name for name in os.listdir(input_dir) if os.path.isdir(os.path.join(input_dir, name))]
     people = [p for p in people if p.startswith("E")]
-    # gender = ["F" if int(p[1:]) % 2 == 0 else "M" for p in people]
+    gender = ["M", "M", "F", "M", "F", "M", "F", "M", "M", "M", "M"]
 
     img_info = load_image_info()
     oasis_categories = img_info["oasis_categories"]
@@ -1716,8 +1718,18 @@ def main():
     shared_plot_valence = init_shared_plot(
         img_seq=va_seq,
         img_category_map=oasis_categories,
+        gender_arr=gender,
         calc_method="valence",
         emotion_type="valence",
+        output_dir=output_dir,
+        mode="mean",
+    )
+    shared_plort_arousal = init_shared_plot(
+        img_seq=ar_seq,
+        img_category_map=oasis_categories,
+        gender_arr=gender,
+        calc_method="arousal",
+        emotion_type="arousal",
         output_dir=output_dir,
         mode="mean",
     )
@@ -1730,10 +1742,21 @@ def main():
             shared_plot_valence,
             connect_segments=False,
         )
+        add_person_to_shared_plot(
+            person,
+            ar_df[person],
+            ar_vda[person],
+            shared_plort_arousal,
+            connect_segments=False,
+        )
 
     finalize_shared_plot(
         shared_plot_valence,
         filename="combined_valence_plot.png",
+    )
+    finalize_shared_plot(
+        shared_plort_arousal,
+        filename="combined_arousal_plot.png",
     )
 
     # plot_valence_arousal_methods(vda_results, bin_size=20, output_dir=output_dir)
