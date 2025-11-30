@@ -1201,14 +1201,20 @@ def init_shared_plot(
     img_category_map: dict,
     calc_method: str = "arousal",
     emotion_type: str = "arousal",
-    figsize=(14, 6),
+    figsize=(18, 6),
     output_dir: str = output_dir,
     cmap: str = "tab20",
     show_images: bool = False,
+    mode: str = "both",  # "mean", "individual", or "both"
 ):
     """
     Initialize a shared figure/axis for plotting multiple people's time series.
     Returns a dict `shared` holding fig, ax, color cycle and config.
+
+    mode:
+        - "mean":      plot only group-mean line
+        - "individual": plot only individual lines
+        - "both":      plot individual lines + group-mean line
     """
     fig, ax = plt.subplots(figsize=figsize)
     cmap_obj = plt.get_cmap(cmap)
@@ -1231,6 +1237,8 @@ def init_shared_plot(
         "img_category_map": img_category_map,
         "high_list": high_list,
         "low_list": low_list,
+        "all_y_values": [],
+        "mode": mode,
     }
     # axis labels / title left to finalize_shared_plot, but set basic labels
     if emotion_type == "arousal":
@@ -1252,6 +1260,7 @@ def add_person_to_shared_plot(
     line_style: str = "-",
     linewidth: float = 1.5,
     alpha: float = 0.9,
+    center_y_axis: bool = True,
 ):
     """
     Add one person's time series to a shared plot.
@@ -1260,6 +1269,7 @@ def add_person_to_shared_plot(
     """
     ax = shared["ax"]
     calc_method = shared["calc_method"]
+    mode = shared.get("mode", "both")
 
     serie_raw = vda_person.get(calc_method)
     if serie_raw is None:
@@ -1310,6 +1320,9 @@ def add_person_to_shared_plot(
         y_series = pd.Series([np.nan] * len(ordered_idxs))
 
     y = y_series.to_numpy()
+    if center_y_axis:
+        y = y - np.nanmean(y)
+    shared["all_y_values"].append(y)
     n = len(y)
     x = np.arange(n)
     imgs = df.loc[ordered_idxs, "img"].reset_index(drop=True).astype(str).tolist()
@@ -1322,9 +1335,9 @@ def add_person_to_shared_plot(
 
     line = None
     # Plot as continuous or segmented (to reflect image blocks)
-    if connect_segments:
+    if connect_segments and mode in ("individual", "both"):
         (line,) = ax.plot(x, y, color=color, linestyle=line_style, linewidth=linewidth, alpha=alpha, label=person_name)
-    else:
+    elif mode in ("individual", "both"):
         # find contiguous segments of same image to create visible gaps
         segments = []
         start = 0
@@ -1477,7 +1490,16 @@ def annotate_shared_plot(
 
         seg_len = e - s
         if seg_len >= 1:
-            ax.text((s + e - 1) / 2.0, label_y, label, ha="center", va="top", fontsize=fontsize, rotation=0)
+            ax.text(
+                (s + e - 1) / 2.0,
+                label_y,
+                label,
+                ha="center",
+                va="top",
+                fontsize=fontsize,
+                rotation=15,
+                rotation_mode="anchor",
+            )
 
     # store legend handles in shared for finalize_shared_plot to use
     if image_legend_handles:
@@ -1499,6 +1521,8 @@ def finalize_shared_plot(
     """
     fig = shared["fig"]
     ax = shared["ax"]
+    mode = shared.get("mode", "both")
+    connect_segments = shared.get("connect_segments", False)
 
     # attempt to auto-set y-limits based on plotted lines
     try:
@@ -1513,8 +1537,74 @@ def finalize_shared_plot(
     except Exception:
         pass
 
-    ax.set_xlabel("Time Points", fontweight="bold")
+    # --- build 2D matrix and plot group mean ---
+    all_y_list = shared.get("all_y_values", [])
+    if all_y_list and mode in ("mean", "both"):
+        # assumes all y have same length
+        y_mat = np.vstack(all_y_list)  # shape: (n_people, n_time)
+        y_mean = np.nanmean(y_mat, axis=0)  # per-instant mean
+        n = y_mean.shape[0]
+        x = np.arange(y_mean.shape[0])
+        mean_line = None
+        if connect_segments:
+            (mean_line,) = ax.plot(
+                x,
+                y_mean,
+                color="black",
+                linewidth=2.0,
+                linestyle="-",
+                alpha=0.9,
+                label="Group mean",
+            )
+        else:
+            # segmented mean line using global img_order_labels
+            imgs = shared.get("img_order_labels", [])
 
+            if not imgs:
+                imgs = [None] * n  # fallback: just one continuous segment
+            # build contiguous segments of same image
+            segments = []
+            start = 0
+            cur_img = imgs[0] if imgs else None
+            for i in range(1, n):
+                if imgs[i] != cur_img:
+                    segments.append((start, i))
+                    start = i
+                    cur_img = imgs[i]
+            if n > 0:
+                segments.append((start, n))
+
+            for s, e in segments:
+                seg_x = np.arange(s, e)
+                seg_y = y_mean[s:e]
+                if len(seg_x) == 1:
+                    (lobj,) = ax.plot(
+                        seg_x,
+                        seg_y,
+                        marker="o",
+                        color="black",
+                        markersize=4,
+                        linestyle="None",
+                        alpha=0.9,
+                        label="Group mean" if mean_line is None else "_nolegend_",
+                    )
+                else:
+                    (lobj,) = ax.plot(
+                        seg_x,
+                        seg_y,
+                        color="black",
+                        linewidth=2.0,
+                        linestyle="-",
+                        alpha=0.9,
+                        label="Group mean" if mean_line is None else "_nolegend_",
+                    )
+                if mean_line is None:
+                    mean_line = lobj
+        if mean_line is not None:
+            shared["legend_handles"].append(mean_line)
+            shared["labels"].append("Group mean")
+
+    ax.set_xlabel("Time Points", fontweight="bold")
     annotate_shared_plot(shared, fontsize=7, alpha=0.25)
 
     # combine legend handles (people + image legend handles)
@@ -1525,9 +1615,11 @@ def finalize_shared_plot(
         else shared.get("labels", [])
     )
     if handles:
-        ax.legend(handles=handles, labels=labels, loc="upper right", fontsize=9, framealpha=0.9)
+        ax.legend(
+            handles=handles, labels=labels, loc="upper right", fontsize=9, framealpha=0.9, bbox_to_anchor=(1.15, 1)
+        )
 
-    plt.tight_layout()
+    plt.tight_layout(rect=[0.0, 0.0, 1.0, 0.95])
     if save_plot:
         os.makedirs(shared["output_dir"], exist_ok=True)
         outpath = os.path.join(shared["output_dir"], filename)
@@ -1544,6 +1636,7 @@ def main():
     # Populate `people` with folder names found in sub_data
     people = [name for name in os.listdir(input_dir) if os.path.isdir(os.path.join(input_dir, name))]
     people = [p for p in people if p.startswith("E")]
+    # gender = ["F" if int(p[1:]) % 2 == 0 else "M" for p in people]
 
     img_info = load_image_info()
     oasis_categories = img_info["oasis_categories"]
@@ -1626,6 +1719,7 @@ def main():
         calc_method="valence",
         emotion_type="valence",
         output_dir=output_dir,
+        mode="mean",
     )
 
     for person in people:
