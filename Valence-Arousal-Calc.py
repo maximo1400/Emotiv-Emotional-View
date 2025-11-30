@@ -1516,7 +1516,7 @@ def finalize_shared_plot(
     filename: str = "combined_vda_plot.png",
     bbox_inches="tight",
     dpi=300,
-    show: bool = True,
+    show: bool = False,
 ):
     """
     Finalize shared plot: add image annotations (shading & labels), legend, save and show.
@@ -1618,10 +1618,10 @@ def finalize_shared_plot(
     )
     if handles:
         ax.legend(
-            handles=handles, labels=labels, loc="upper right", fontsize=9, framealpha=0.9, bbox_to_anchor=(1.15, 1)
+            handles=handles, labels=labels, loc="upper right", fontsize=9, framealpha=0.9, bbox_to_anchor=(1.12, 1)
         )
 
-    plt.tight_layout(rect=[0.0, 0.0, 1.0, 0.95])
+    plt.tight_layout()
     if save_plot:
         os.makedirs(shared["output_dir"], exist_ok=True)
         outpath = os.path.join(shared["output_dir"], filename)
@@ -1629,7 +1629,7 @@ def finalize_shared_plot(
         print(f"Combined plot saved to {outpath}")
     if show:
         plt.show()
-    plt.close(fig)
+    # plt.close(fig)
     return
 
 
@@ -1724,7 +1724,7 @@ def main():
         output_dir=output_dir,
         mode="mean",
     )
-    shared_plort_arousal = init_shared_plot(
+    shared_plot_arousal = init_shared_plot(
         img_seq=ar_seq,
         img_category_map=oasis_categories,
         gender_arr=gender,
@@ -1746,7 +1746,7 @@ def main():
             person,
             ar_df[person],
             ar_vda[person],
-            shared_plort_arousal,
+            shared_plot_arousal,
             connect_segments=False,
         )
 
@@ -1755,11 +1755,11 @@ def main():
         filename="combined_valence_plot.png",
     )
     finalize_shared_plot(
-        shared_plort_arousal,
+        shared_plot_arousal,
         filename="combined_arousal_plot.png",
     )
-
-    # plot_valence_arousal_methods(vda_results, bin_size=20, output_dir=output_dir)
+    plt.show()
+    plt.close("all")
 
     # Combine all VDA results into a single DataFrame for saving
     vda_df = pd.DataFrame()
