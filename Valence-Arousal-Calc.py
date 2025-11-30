@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from matplotlib.patches import Patch
 from itertools import zip_longest
+from matplotlib.patches import Patch as _Patch
 
 warnings.filterwarnings("ignore")
 
@@ -1225,7 +1226,9 @@ def init_shared_plot(
         "show_images": show_images,
         "legend_handles": [],
         "labels": [],
+        "img_order_labels": [],
         "img_seq": img_seq,
+        "img_category_map": img_category_map,
         "high_list": high_list,
         "low_list": low_list,
     }
@@ -1258,7 +1261,6 @@ def add_person_to_shared_plot(
     ax = shared["ax"]
     calc_method = shared["calc_method"]
 
-    # grab raw series (can be pd.Series, list or numpy)
     serie_raw = vda_person.get(calc_method)
     if serie_raw is None:
         print(f"Warning: {calc_method} not found for {person_name}; skipping.")
@@ -1287,7 +1289,6 @@ def add_person_to_shared_plot(
         return
 
     # Align y values to ordered_idxs
-    # If serie_raw is a pandas Series with length == len(df), use positional reindexing
     try:
         if isinstance(serie_raw, pd.Series) and len(serie_raw) == len(df):
             y_series = serie_raw.reset_index(drop=True).iloc[ordered_idxs].reset_index(drop=True)
@@ -1319,6 +1320,7 @@ def add_person_to_shared_plot(
     color = colors[ci]
     shared["color_idx"] += 1
 
+    line = None
     # Plot as continuous or segmented (to reflect image blocks)
     if connect_segments:
         (line,) = ax.plot(x, y, color=color, linestyle=line_style, linewidth=linewidth, alpha=alpha, label=person_name)
@@ -1345,15 +1347,143 @@ def add_person_to_shared_plot(
                     line = lobj
             else:
                 (lobj,) = ax.plot(seg_x, seg_y, color=color, linestyle=line_style, linewidth=linewidth, alpha=alpha)
-                if line is None:
-                    line = lobj
+            if line is None:
+                line = lobj
 
     # store handle and label for legend
     if line is not None:
         shared["legend_handles"].append(line)
         shared["labels"].append(person_name)
 
+    # get ordered image labels if not yet defined
+    img_labels = shared.get("img_order_labels", [])
+    if not img_labels:
+        img_labels = get_img_order_labels(df, img_seq)
+        shared["img_order_labels"] = img_labels
+
     return
+
+
+def get_img_order_labels(
+    df: pd.DataFrame,
+    img_seq: list,
+) -> list:
+    """
+    Get ordered image labels consistent with img_seq and df.
+    """
+    ordered_idxs = []
+    if img_seq:
+        seen = set()
+        for img in img_seq:
+            matches = df.index[df["img"].astype(str) == str(img)].tolist()
+            for idx in matches:
+                if idx not in seen:
+                    ordered_idxs.append(idx)
+                    seen.add(idx)
+        for idx in df.index.tolist():
+            if idx not in seen:
+                ordered_idxs.append(idx)
+                seen.add(idx)
+    else:
+        ordered_idxs = df.index.tolist()
+
+    if not ordered_idxs:
+        return []
+
+    df_ord = df.loc[ordered_idxs].reset_index(drop=True)
+    imgs = df_ord["img"].astype(str).tolist()
+    return imgs
+
+
+def annotate_shared_plot(
+    shared: dict,
+    fontsize: int = 7,
+    alpha: float = 0.25,
+):
+    """
+    Use shared['img_order_labels']  to label the x-axis by image blocks
+    and color the background for images listed in shared['high_list'] / shared['low_list'].
+    Populates shared['image_legend_handles'] for the final legend.
+    """
+    ax = shared.get("ax")
+    if ax is None:
+        return
+
+    # Colors
+    high_color = "lightgreen"
+    low_color = "lightcoral"
+    neutral_color = None
+
+    # Determine ordered image list and contiguous segments
+    imgs = shared.get("img_order_labels", []) or []
+
+    if not imgs:
+        return
+
+    # find contiguous segments of same image
+    segments = []
+    start = 0
+    cur_img = imgs[0]
+    for i in range(1, len(imgs)):
+        if imgs[i] != cur_img:
+            segments.append((cur_img, start, i))  # end exclusive
+            start = i
+            cur_img = imgs[i]
+    segments.append((cur_img, start, len(imgs)))
+
+    # ensure y placement for labels (near top of axis)
+    ylim = ax.get_ylim()
+    y_min, y_max = ylim[0], ylim[1]
+    y_range = max(1e-6, y_max - y_min)
+    label_y = y_max - 0.02 * y_range
+
+    # shading and labels
+    img_cat_map = shared.get("img_category_map", {}) or {}
+    high_list = set(shared.get("high_list", []) or [])
+    low_list = set(shared.get("low_list", []) or [])
+
+    image_legend_handles = []
+    added_high = False
+    added_low = False
+
+    for img_id, s, e in segments:
+        # choose color
+        col = None
+        if img_id in high_list:
+            col = high_color
+            if not added_high:
+                image_legend_handles.append(
+                    Patch(facecolor=high_color, alpha=alpha, label=f"High {shared.get('emotion_type','')}".strip())
+                )
+                added_high = True
+        elif img_id in low_list:
+            col = low_color
+            if not added_low:
+                image_legend_handles.append(
+                    Patch(facecolor=low_color, alpha=alpha, label=f"Low {shared.get('emotion_type','')}".strip())
+                )
+                added_low = True
+
+        if col:
+            # shade the background for this image block; align with data point centers
+            ax.axvspan(s - 0.5, e - 0.5, facecolor=col, alpha=alpha, edgecolor=None)
+
+        # label in the center of the segment: show img id and optionally category
+        label = str(img_id)
+        if img_cat_map and isinstance(img_cat_map, dict):
+            cat = img_cat_map.get(img_id)
+            if cat is not None:
+                label = f"{img_id}\n{cat}"
+
+        seg_len = e - s
+        if seg_len >= 1:
+            ax.text((s + e - 1) / 2.0, label_y, label, ha="center", va="top", fontsize=fontsize, rotation=0)
+
+    # store legend handles in shared for finalize_shared_plot to use
+    if image_legend_handles:
+        shared["image_legend_handles"] = image_legend_handles
+    else:
+        shared["image_legend_handles"] = []
 
 
 def finalize_shared_plot(
@@ -1365,22 +1495,17 @@ def finalize_shared_plot(
     show: bool = True,
 ):
     """
-    Finalize the shared plot: add legend, axis labels, save and show.
+    Finalize shared plot: add image annotations (shading & labels), legend, save and show.
     """
     fig = shared["fig"]
     ax = shared["ax"]
 
-    # center axes around zero if desired (use current data extents)
+    # attempt to auto-set y-limits based on plotted lines
     try:
-        all_lines = shared.get("legend_handles", [])
-        # compute extents from plotted lines
-        xs, ys = [], []
+        ys = []
         for line in ax.get_lines():
-            xd = line.get_xdata()
-            yd = line.get_ydata()
-            if len(xd) and len(yd):
-                xs.extend(xd)
-                ys.extend(yd[np.isfinite(yd)])
+            yd = np.asarray(line.get_ydata())
+            ys.extend(yd[np.isfinite(yd)])
         if ys:
             y_min, y_max = np.min(ys), np.max(ys)
             y_range = max(1e-6, y_max - y_min)
@@ -1390,10 +1515,17 @@ def finalize_shared_plot(
 
     ax.set_xlabel("Time Points", fontweight="bold")
 
-    if shared["labels"]:
-        ax.legend(
-            handles=shared["legend_handles"], labels=shared["labels"], loc="upper right", fontsize=9, framealpha=0.9
-        )
+    annotate_shared_plot(shared, fontsize=7, alpha=0.25)
+
+    # combine legend handles (people + image legend handles)
+    handles = shared.get("legend_handles", []) + shared.get("image_legend_handles", [])
+    labels = (
+        shared.get("labels", []) + [h.get_label() for h in shared.get("image_legend_handles", [])]
+        if shared.get("image_legend_handles")
+        else shared.get("labels", [])
+    )
+    if handles:
+        ax.legend(handles=handles, labels=labels, loc="upper right", fontsize=9, framealpha=0.9)
 
     plt.tight_layout()
     if save_plot:
@@ -1443,10 +1575,10 @@ def main():
         # df = apply_baseline_percent_change(df, base_prev_r2=base_prev)
 
         df = drop_first_image(df)
-        print(f"Data loaded successfully. Shape: {df.shape}")
 
         # Keep only image presentation periods (slice "I")
         df_i = df[df["slice"] == "I"].reset_index(drop=True)
+        print(f"Data loaded successfully. Shape: {df_i.shape}")
 
         # Calculate valence, dominance, and arousal
         print("\nCalculating valence, dominance, and arousal...")
