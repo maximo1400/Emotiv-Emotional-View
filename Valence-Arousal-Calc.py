@@ -1651,8 +1651,61 @@ def finalize_shared_plot(
 def do_every_shared_plot(
     people: list,
     va_df: dict,
+    va_seq: list,
+    va_vda: dict,
+    va_methods: list,
+    ar_df: dict,
+    ar_seq: list,
+    ar_vda: dict,
+    ar_methods: list,
+    img_category_map: dict,
+    output_dir: str = output_dir,
 ):
-    return
+    random.shuffle(people)  # randomize order for plotting
+    fake_names = ["Person " + str(i + 1) for i in range(len(people))]
+    i_name = 0
+
+    # int plots
+    plots = {}
+    for emotion, methods, seq in [
+        ("valence", va_methods, va_seq),
+        ("arousal", ar_methods, ar_seq),
+    ]:
+        for method in methods:
+            plots[method] = init_shared_plot(
+                img_seq=seq,
+                img_category_map=img_category_map,
+                # gender_arr=gender,
+                calc_method=method,
+                emotion_type=emotion,
+                output_dir=output_dir,
+                mode="both",
+            )
+
+    for person in people:
+        for emotion, df_dict, vda, methods in [
+            ("valence", va_df, va_vda, va_methods),
+            ("arousal", ar_df, ar_vda, ar_methods),
+        ]:
+
+            for method in methods:
+                add_person_to_shared_plot(
+                    fake_names[i_name],
+                    df_dict[person],
+                    vda[person],
+                    plots[method],
+                    connect_segments=False,
+                )
+        i_name += 1
+    for emotion, methods in [
+        ("valence", va_methods),
+        ("arousal", ar_methods),
+    ]:
+        for method in methods:
+            finalize_shared_plot(
+                plots[method],
+                filename=f"combined_{method}_plot.png",
+            )
 
 
 def main():
@@ -1706,7 +1759,7 @@ def main():
         vda[person] = va | ar | dom
         va_methods = list(va.keys())
         ar_methods = list(ar.keys())
-        # exclude '_img_' entries from methods can be in second or third word
+        # exclude '_img_mean' entries from methods
         va_methods = [m for m in va_methods if "_img_mean" not in m]
         ar_methods = [m for m in ar_methods if "_img_mean" not in m]
 
@@ -1717,13 +1770,17 @@ def main():
         vda_df["img"] = df_i["img"].reset_index(drop=True)
         n_rows = len(vda_df)
 
-        for key, val in vda.items():
+        for key, val in vda[person].items():
             # Series (per-row) already aligned to time order -> reset_index to keep order
-            if len(val) == n_rows:
+            if isinstance(val, pd.Series) and len(val) == n_rows:
                 vda_df[key] = val.reset_index(drop=True)
             else:
                 # per-image aggregated series (index = img) -> map to each row by img id
-                vda_df[key] = vda_df["img"].map(val)
+                try:
+                    vda_df[key] = vda_df["img"].map(val)
+                except Exception:
+                    # if val is not mappable, fill with NaN
+                    vda_df[key] = np.nan
         vda_results[person] = vda_df
 
         va_df[person], va_vda[person], va_seq = filter_and_alternate_images(
@@ -1741,65 +1798,35 @@ def main():
             ar_seq,
             emot_type="arousal",
         )
-
-    shared_plot_valence = init_shared_plot(
-        img_seq=va_seq,
+    do_every_shared_plot(
+        people=people,
+        va_df=va_df,
+        va_seq=va_seq,
+        va_vda=va_vda,
+        va_methods=va_methods,
+        ar_df=ar_df,
+        ar_seq=ar_seq,
+        ar_vda=ar_vda,
+        ar_methods=ar_methods,
         img_category_map=oasis_categories,
-        # gender_arr=gender,
-        calc_method="valence",
-        emotion_type="valence",
         output_dir=output_dir,
-        mode="both",
     )
-    shared_plot_arousal = init_shared_plot(
-        img_seq=ar_seq,
-        img_category_map=oasis_categories,
-        # gender_arr=gender,
-        calc_method="arousal",
-        emotion_type="arousal",
-        output_dir=output_dir,
-        mode="both",
-    )
-    random.shuffle(people)  # randomize order for plotting
-    fake_names = ["Person " + str(i + 1) for i in range(len(people))]
-    i_name = 0
-    for person in people:
-        add_person_to_shared_plot(
-            fake_names[i_name],
-            # person,
-            va_df[person],
-            va_vda[person],
-            shared_plot_valence,
-            connect_segments=False,
-        )
-        add_person_to_shared_plot(
-            fake_names[i_name],
-            # person,
-            ar_df[person],
-            ar_vda[person],
-            shared_plot_arousal,
-            connect_segments=False,
-        )
-        i_name += 1
-
-    finalize_shared_plot(
-        shared_plot_valence,
-        filename="combined_valence_plot.png",
-    )
-    finalize_shared_plot(
-        shared_plot_arousal,
-        filename="combined_arousal_plot.png",
-    )
-    plt.show()
+    # plt.show()
     plt.close("all")
 
     # Combine all VDA results into a single DataFrame for saving
-    vda_df = pd.DataFrame()
+    rows = []
     for person, res_df in vda_results.items():
-        res_df = res_df.copy()
-        res_df["person"] = person
-        vda_df = pd.concat([vda_df, res_df], ignore_index=True)
-    vda_df.to_csv(f"{output_dir}/VDA_results.csv", index=False)
+        tmp = res_df.copy()
+        tmp["person"] = person
+        rows.append(tmp)
+
+    if rows:
+        vda_df = pd.concat(rows, ignore_index=True)
+        vda_df.to_csv(f"{output_dir}/VDA_results.csv", index=False)
+        print(f"Saved combined VDA results for {len(vda_results)} people to {output_dir}/VDA_results.csv")
+    else:
+        print("No VDA results to save.")
     return
 
 
