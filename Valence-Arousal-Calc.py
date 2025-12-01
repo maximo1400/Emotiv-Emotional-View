@@ -1,3 +1,4 @@
+import random
 import pandas as pd
 import numpy as np
 from scipy import signal
@@ -11,6 +12,11 @@ from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from matplotlib.patches import Patch
 from itertools import zip_longest
 from matplotlib.patches import Patch as _Patch
+
+# import ast
+# from dotenv import load_dotenv
+
+# load_dotenv()
 
 warnings.filterwarnings("ignore")
 
@@ -1199,7 +1205,7 @@ def filter_and_alternate_images(
 def init_shared_plot(
     img_seq: list,
     img_category_map: dict,
-    gender_arr: list = None,
+    # gender_arr: list = None,
     calc_method: str = "arousal",
     emotion_type: str = "arousal",
     figsize=(18, 6),
@@ -1240,7 +1246,7 @@ def init_shared_plot(
         "low_list": low_list,
         "all_y_values": [],
         "mode": mode,
-        "gender_arr": gender_arr,
+        # "gender_arr": gender_arr,
     }
     # axis labels / title left to finalize_shared_plot, but set basic labels
     if emotion_type == "arousal":
@@ -1323,7 +1329,7 @@ def add_person_to_shared_plot(
 
     y = y_series.to_numpy()
     if center_y_axis:
-        y = y - np.nanmean(y)
+        y = y - np.nanmedian(y)
     shared["all_y_values"].append(y)
     n = len(y)
     x = np.arange(n)
@@ -1525,6 +1531,8 @@ def finalize_shared_plot(
     ax = shared["ax"]
     mode = shared.get("mode", "both")
     connect_segments = shared.get("connect_segments", False)
+    # horizontal reference line at 0 on the y-axis
+    ax.axhline(y=0, color="red", linestyle="--", linewidth=1.0, alpha=0.7, label="_zero_")
 
     # attempt to auto-set y-limits based on plotted lines
     try:
@@ -1533,8 +1541,15 @@ def finalize_shared_plot(
             yd = np.asarray(line.get_ydata())
             ys.extend(yd[np.isfinite(yd)])
         if ys:
-            y_min, y_max = np.min(ys), np.max(ys)
+            ys = np.asarray(ys)
+
+            # clip only the high values at 50
+            ys_clipped = np.minimum(ys, 20.0)
+
+            y_min = float(np.min(ys_clipped))
+            y_max = float(np.max(ys_clipped))
             y_range = max(1e-6, y_max - y_min)
+
             ax.set_ylim(y_min - 0.12 * y_range, y_max + 0.06 * y_range)
     except Exception:
         pass
@@ -1633,12 +1648,19 @@ def finalize_shared_plot(
     return
 
 
+def do_every_shared_plot(
+    people: list,
+    va_df: dict,
+):
+    return
+
+
 def main():
     """Main function to process EEG data"""
     # Populate `people` with folder names found in sub_data
     people = [name for name in os.listdir(input_dir) if os.path.isdir(os.path.join(input_dir, name))]
     people = [p for p in people if p.startswith("E")]
-    gender = ["M", "M", "F", "M", "F", "M", "F", "M", "M", "M", "M"]
+    # gender = ast.literal_eval(os.getenv("gender"))
 
     img_info = load_image_info()
     oasis_categories = img_info["oasis_categories"]
@@ -1682,6 +1704,11 @@ def main():
         ar = calculate_arousal(df_i, asym)
         dom = calculate_dominance(df_i, asym)
         vda[person] = va | ar | dom
+        va_methods = list(va.keys())
+        ar_methods = list(ar.keys())
+        # exclude '_img_' entries from methods can be in second or third word
+        va_methods = [m for m in va_methods if "_img_mean" not in m]
+        ar_methods = [m for m in ar_methods if "_img_mean" not in m]
 
         # Prepare VDA results for saving
         # Build a time-ordered DataFrame (one row per sample in df_i) and
@@ -1718,37 +1745,42 @@ def main():
     shared_plot_valence = init_shared_plot(
         img_seq=va_seq,
         img_category_map=oasis_categories,
-        gender_arr=gender,
+        # gender_arr=gender,
         calc_method="valence",
         emotion_type="valence",
         output_dir=output_dir,
-        mode="mean",
+        mode="both",
     )
     shared_plot_arousal = init_shared_plot(
         img_seq=ar_seq,
         img_category_map=oasis_categories,
-        gender_arr=gender,
+        # gender_arr=gender,
         calc_method="arousal",
         emotion_type="arousal",
         output_dir=output_dir,
-        mode="mean",
+        mode="both",
     )
-
+    random.shuffle(people)  # randomize order for plotting
+    fake_names = ["Person " + str(i + 1) for i in range(len(people))]
+    i_name = 0
     for person in people:
         add_person_to_shared_plot(
-            person,
+            fake_names[i_name],
+            # person,
             va_df[person],
             va_vda[person],
             shared_plot_valence,
             connect_segments=False,
         )
         add_person_to_shared_plot(
-            person,
+            fake_names[i_name],
+            # person,
             ar_df[person],
             ar_vda[person],
             shared_plot_arousal,
             connect_segments=False,
         )
+        i_name += 1
 
     finalize_shared_plot(
         shared_plot_valence,
