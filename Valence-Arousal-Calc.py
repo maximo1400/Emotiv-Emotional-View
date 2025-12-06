@@ -294,6 +294,7 @@ def calculate_arousal(df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONFIG
 
     # Enhanced arousal calculation
     frontal_electrodes = eeg_config["frontal_electrodes"]
+    frequency_bands = eeg_config["frequency_bands"]
 
     # Multiple arousal measures (collect as numpy arrays for consistency)
     beta_low_activities = [df[f"{electrode}/betaL"].to_numpy() for electrode in frontal_electrodes]
@@ -301,9 +302,20 @@ def calculate_arousal(df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONFIG
     beta_combined_activities = [low + high for low, high in zip(beta_low_activities, beta_high_activities)]
 
     # Average across electrodes (axis=0 -> per-timepoint mean across electrodes)
-    arousal_beta_low_arr = np.mean(beta_low_activities, axis=0)
-    arousal_beta_high_arr = np.mean(beta_high_activities, axis=0)
-    arousal_beta_combined_arr = np.mean(beta_combined_activities, axis=0)
+    arousal_beta_low_arr = np.mean(beta_low_activities, axis=0) if beta_low_activities else np.array([])
+    arousal_beta_high_arr = np.mean(beta_high_activities, axis=0) if beta_high_activities else np.array([])
+    arousal_beta_combined_arr = np.mean(beta_combined_activities, axis=0) if beta_combined_activities else np.array([])
+
+    # Normalized version: combined beta relative to total frontal power (all bands)
+    # Compute per-electrode total power across defined frequency bands, then average across electrodes
+    if frontal_electrodes and frequency_bands:
+        total_per_electrode = [
+            sum(df[f"{el}/{band}"].to_numpy() for band in frequency_bands) for el in frontal_electrodes
+        ]
+        total_power_arr = np.mean(total_per_electrode, axis=0)
+        arousal_beta_combined_norm_arr = arousal_beta_combined_arr / (total_power_arr + eps)
+    else:
+        arousal_beta_combined_norm_arr = np.zeros_like(arousal_beta_combined_arr)
 
     # Primary arousal measure (combined beta for robustness)
     arousal_arr = arousal_beta_combined_arr
@@ -314,18 +326,21 @@ def calculate_arousal(df: pd.DataFrame, asymmetries: dict, eeg_config=EEG_CONFIG
     ser_low = pd.Series(arousal_beta_low_arr, index=img_index)
     ser_high = pd.Series(arousal_beta_high_arr, index=img_index)
     ser_combined = pd.Series(arousal_beta_combined_arr, index=img_index)
+    ser_combined_norm = pd.Series(arousal_beta_combined_norm_arr, index=img_index)
     ser_primary = pd.Series(arousal_arr, index=img_index)
 
     # Store per-row series
     results["arousal_beta_low"] = ser_low
     results["arousal_beta_high"] = ser_high
     results["arousal_beta_combined"] = ser_combined
+    results["arousal_beta_combined_norm"] = ser_combined_norm
     results["arousal"] = ser_primary
 
     # Store aggregated per-image means
     results["arousal_beta_low_img_mean"] = ser_low.groupby(level=0).mean()
     results["arousal_beta_high_img_mean"] = ser_high.groupby(level=0).mean()
     results["arousal_beta_combined_img_mean"] = ser_combined.groupby(level=0).mean()
+    results["arousal_beta_combined_norm_img_mean"] = ser_combined_norm.groupby(level=0).mean()
     results["arousal_img_mean"] = ser_primary.groupby(level=0).mean()
 
     return results
