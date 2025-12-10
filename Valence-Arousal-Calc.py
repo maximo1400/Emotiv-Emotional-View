@@ -12,6 +12,7 @@ from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from matplotlib.patches import Patch
 from itertools import zip_longest
 from matplotlib.patches import Patch as _Patch
+import pyarrow.feather as feather
 
 # import ast
 # from dotenv import load_dotenv
@@ -60,8 +61,17 @@ output_dir = "sub_data/emotions"
 # fmt: on
 
 
-def load_eeg_data(filename: str) -> pd.DataFrame:
-    """Load EEG data from CSV file"""
+def load_eeg_data(filename: str, person: str, force_read_csv: bool = False) -> pd.DataFrame:
+    """
+    Load EEG data from CSV or feather file.
+    Use force_read_csv if reading from feather fails or change is needed.
+    """
+
+    if os.path.exists(f"{input_dir}/{person}/df.feather") and not force_read_csv:
+        df = pd.read_feather(f"{input_dir}/{person}/df.feather")
+        df_i = pd.read_feather(f"{input_dir}/{person}/df_i.feather")
+        return df, df_i
+
     df = pd.read_csv(filename)
     df.columns = df.columns.str.strip()
     df["img"] = df["img"].str.strip()
@@ -70,7 +80,24 @@ def load_eeg_data(filename: str) -> pd.DataFrame:
         df = df.drop(df.columns[0], axis=1)
     df = df.drop("round", axis=1)
     df = df[~df["img"].eq("end")]
-    return df
+
+    df = clean_slice_df(df)
+
+    # TODO: nicer normailzation
+    # base_prev = compute_prev_R2_baseline(df)
+    # df = apply_baseline_percent_change(df, base_prev_r2=base_prev)
+
+    df = drop_first_image(df)
+
+    # Keep only image presentation periods (slice "I")
+    df_i = df[df["slice"] == "I"].reset_index(drop=True)
+    # print(f"Data loaded successfully. Shape: {df_i.shape}")
+
+    # save df_i for fast reload (feather)
+    df.reset_index(drop=True).to_feather(f"{input_dir}/{person}/df.feather")
+    df_i.reset_index(drop=True).to_feather(f"{input_dir}/{person}/df_i.feather")
+
+    return df, df_i
 
 
 def load_image_info(pickle_path: str = img_info_path) -> pd.DataFrame:
@@ -1752,21 +1779,10 @@ def main():
 
         # Load data
         print(f"Loading EEG data from {person}")
-        df = load_eeg_data(filename)
-        df = clean_slice_df(df)
-
-        # TODO: nicer normailzation
-        # base_prev = compute_prev_R2_baseline(df)
-        # df = apply_baseline_percent_change(df, base_prev_r2=base_prev)
-
-        df = drop_first_image(df)
-
-        # Keep only image presentation periods (slice "I")
-        df_i = df[df["slice"] == "I"].reset_index(drop=True)
-        print(f"Data loaded successfully. Shape: {df_i.shape}")
+        df, df_i = load_eeg_data(filename, person, force_read_csv=False)
 
         # Calculate valence, dominance, and arousal
-        print("\nCalculating valence, dominance, and arousal...")
+        print("Calculating valence, dominance, and arousal...\n")
         asym = calculate_asymetryies(df_i, df)
         va = calculate_valence(df_i, asym)
         ar = calculate_arousal(df_i, asym)
